@@ -35,10 +35,13 @@ async def check():
             return subprocess.CompletedProcess(command, 0, "501\n", "")
         (parent / "slurm.toml").write_text('partition="test"\nsubmit_host="test-host"\n')
         with patch.object(jobs, "RESULTS", parent), patch.object(jobs, "scheduler", scheduler):
-            run = await asyncio.wait_for(batch_experiment([101], 2, 1, events.append, snapshots.append, statuses.append), 90)
+            run = await asyncio.wait_for(batch_experiment([101], 2, 1, events.append, snapshots.append,
+                                                          statuses.append, thread_counts=[2, 1]), 90)
         assert processes[0].wait(timeout=5) == 0
         assert run.parent == parent and snapshots[-1]["cpus"] == 2
-        assert [r["threads"] for r in snapshots[-1]["rows"]] == [1, 2]
+        fast, baseline = snapshots[-1]["rows"]
+        assert [fast["threads"], baseline["threads"]] == [2, 1]
+        assert fast["reference_threads"] == 1 and fast["speedup"] == baseline["median_s"] / fast["median_s"]
         assert events and all(e["capacity"] == 2 and e["job"] == "501" for e in events)
         assert any(e["sample"] and e["sample"]["cores"] > 0 for e in events)
         assert json.loads((run / "session.json").read_text())["status"] == "complete"

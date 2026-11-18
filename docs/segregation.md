@@ -49,7 +49,7 @@ If your site disables per-user extensions, the app administrator can install the
 
 ### Compare four session CPUs with a 60-CPU batch allocation
 
-**Live experiment → Run on → Slurm CPU allocation** uses the same direct or SSH submission route as the segregation tab. Select **404 loci**, **CPU ceiling 60**, and **Run experiment**. Each thread count runs sequentially in one CPU-only job. Worker telemetry, the node name and the allocation size stream back to Jupyter. The measurements persist under **Results & replay**.
+**Live experiment → Run on → Slurm CPU allocation** uses the same direct or SSH submission route as the segregation tab. Select **CPU ceiling 60** and **Run experiment** to measure the selected resolution immediately at 60 threads. **Compare with 16 threads** runs 60 then 16 in one CPU job. **Thread sweep** measures the full scaling curve. Worker telemetry, the node name and the allocation size stream back to Jupyter. The measurements persist under **Results & replay**.
 
 If the worker reports Julia missing on a batch node, run the following once from the shared clone in the ADA terminal. It downloads the official Linux x86-64 Julia 1.12.6 archive, verifies its published SHA-256 digest, and unpacks it into `results/runtime/`. A batch worker automatically finds it there. An explicit `julia` setting in `results/slurm.toml` takes precedence and must point to a working batch-node executable. [Official Julia binary installations](https://julialang.org/downloads/platform/)
 

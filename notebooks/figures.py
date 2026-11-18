@@ -73,19 +73,21 @@ def scaling_figure(rows):
         return None
     with plt.style.context("dark_background"):
         fig, (speed, use) = plt.subplots(1, 2, figsize=(10, 3.2), layout="constrained")
-        cap = max(r["threads"] for r in rows)
+        ticks = sorted({r["threads"] for r in rows if "speedup" in r})
+        reference = next(r.get("reference_threads", 1) for r in rows if "speedup" in r)
         for ax in (speed, use):
             ax.set_facecolor("#101f2d")
             ax.grid(alpha=.13)
             ax.set_xlabel("Julia compute threads")
-            ax.set_xticks(sorted({r["threads"] for r in rows}))
-            ax.plot([1,cap], [1,cap], "--", color="#78949c", linewidth=1)
+            ax.set_xticks(ticks)
+        speed.plot(ticks, [t/reference for t in ticks], "--", color="#78949c", linewidth=1)
+        use.plot(ticks, ticks, "--", color="#78949c", linewidth=1)
         for n, color in zip(series, ("#5ce1c0","#ffa873","#95b9ff")):
-            group = [r for r in rows if r["n"] == n]
+            group = sorted((r for r in rows if r["n"] == n and "speedup" in r), key=lambda r: r["threads"])
             threads = [r["threads"] for r in group]
             speed.plot(threads, [r["speedup"] for r in group], "o-", color=color, label=f"{n} loci")
             use.plot(threads, [r["busy_cores"] for r in group], "o-", color=color)
-        speed.set(ylabel="Speedup over one thread",title="Prediction speedup")
+        speed.set(ylabel=f"Speedup vs {reference} thread{'s' if reference != 1 else ''}",title="Prediction speedup")
         use.set(ylabel="Average busy CPU equivalents",title="CPU use during prediction")
         speed.legend(frameon=False)
         fig.set_facecolor("#101f2d")

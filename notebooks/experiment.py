@@ -23,7 +23,10 @@ def configurations(ceiling):
 def inputs():
     maps = {n: dict(path=MAP, stride=404//n, spacing=4040//n, sha=MAP_SHA) for n in (101, 202, 404)}
     for path in sorted((ROOT / "results").glob("map-*kb-*/contacts.txt")):
-        meta = json.loads(path.with_suffix(".json").read_text())
+        manifest = path.with_suffix(".json")
+        if not manifest.is_file():
+            continue
+        meta = json.loads(manifest.read_text())
         if meta["stride"] in (2, 4) and meta["frames"] == 3060 and meta["radius"] == 5:
             maps[4040//meta["stride"]] = dict(path=path, stride=1, spacing=meta["stride"], sha=meta["sha256"])
     return maps
@@ -125,7 +128,7 @@ async def worker(command, n, threads, update, stream, origin, index, count):
         await asyncio.gather(reader, return_exceptions=True)
 
 
-async def experiment(levels, ceiling, seconds, update, completed, output=None, *, directory=None):
+async def experiment(levels, ceiling, seconds, update, completed, output=None, *, directory=None, thread_counts=None):
     configured = os.getenv("JULIA")
     if configured:
         julia = shutil.which(configured)
@@ -137,6 +140,9 @@ async def experiment(levels, ceiling, seconds, update, completed, output=None, *
         raise RuntimeError(f"Julia is missing on {socket.gethostname()}. Run 'bash scripts/stage-julia.sh' once from the shared ADA clone, then retry. A site installation can also be selected with julia in results/slurm.toml.")
     if not 1 <= ceiling <= cpu_capacity() or seconds <= 0:
         raise ValueError("Invalid CPU ceiling or measurement duration")
+    if thread_counts is not None and (not thread_counts or len(set(thread_counts)) != len(thread_counts)
+                                      or any(t not in range(1, ceiling + 1) for t in thread_counts)):
+        raise ValueError("Choose distinct thread counts within the allocation")
     maps = inputs()
     parent = output or ROOT / "results"
     parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +157,8 @@ async def experiment(levels, ceiling, seconds, update, completed, output=None, *
         temp.replace(directory / "session.json")
     save()
     try:
-        plan = [(n,t) for n in levels for t in (configurations(ceiling) if n <= 404 else [ceiling])]
+        counts = {n: thread_counts or (configurations(ceiling) if n <= 404 else [ceiling]) for n in levels}
+        plan = [(n,t) for n in levels for t in counts[n]]
         hashes = set()
         baseline = {}
         origin = time.monotonic()
@@ -173,9 +180,15 @@ async def experiment(levels, ceiling, seconds, update, completed, output=None, *
                     first = baseline.setdefault(n, row.copy())
                     if first["digest"] != row["digest"]:
                         raise ValueError(f"Tensor mismatch at {n} loci, {threads} threads")
-                    row["speedup"] = first["median_s"]/row["median_s"]
-                    row["efficiency"] = row["speedup"]/threads
                 run["rows"].append(row)
+                reference = min(counts[n])
+                group = [r for r in run["rows"] if r["n"] == n]
+                base = next((r for r in group if r["threads"] == reference), None)
+                if base and (len(counts[n]) > 1 or reference == 1):
+                    for r in group:
+                        r["reference_threads"] = reference
+                        r["speedup"] = base["median_s"] / r["median_s"]
+                        r["efficiency"] = r["speedup"] * reference / r["threads"]
                 save()
                 completed(run)
         run["status"] = "complete"

@@ -79,13 +79,16 @@ def comparison(run):
         group = [r for r in rows if r["n"] == n]
         best = max(n**3/r["median_s"] for r in group)
         body += f'<h3 style="margin-top:15px">{n:,} loci · {n**3:,} entries</h3>'
-        body += '<table><tr><th>Threads</th><th>G entries/s</th><th>Median/pass</th><th>Speedup</th><th>Efficiency</th><th>Busy CPUs</th><th>Peak RSS</th></tr>'
+        reference = next((r.get("reference_threads", 1) for r in group if "speedup" in r), None)
+        scaling_headers = f"<th>Speedup vs {reference}T</th><th>Relative efficiency</th>" if reference else ""
+        body += f'<table><tr><th>Threads</th><th>G entries/s</th><th>Median/pass</th>{scaling_headers}<th>Busy CPUs</th><th>Peak RSS</th></tr>'
         for r in group:
             rate = n**3/r["median_s"]
             speed = f'{r["speedup"]:.2f}×' if "speedup" in r else "—"
             efficiency = f'{r["efficiency"]:.0%}' if "efficiency" in r else "—"
             body += (f'<tr><td>{r["threads"]}</td><td>{rate/1e9:.3f}<span class="adaTrack"><i style="width:{100*rate/best:.1f}%"></i></span></td>'
-                     f'<td>{r["median_s"]*1000:.2f} ms</td><td>{speed}</td><td>{efficiency}</td>'
+                     f'<td>{r["median_s"]*1000:.2f} ms</td>'
+                     + (f'<td>{speed}</td><td>{efficiency}</td>' if reference else '') +
                      f'<td>{r["busy_cores"]:.2f}</td><td>{ram(r["peak_rss"])}</td></tr>')
         body += '</table>'
     return panel(body)

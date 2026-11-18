@@ -11,5 +11,5 @@ time = "00:10:00"
 # Julia CPU scaling options, independent of the segregation request above.
 # benchmark_cpus = 60
 # benchmark_time = "00:30:00"
-# benchmark_memory = "8G"
+# benchmark_memory = "80G"
 # julia = "/shared/path/to/julia"

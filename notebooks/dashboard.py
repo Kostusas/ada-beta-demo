@@ -49,6 +49,8 @@ class Dashboard:
                                 layout=w.Layout(width="340px"))
         self.ceiling = w.Dropdown(description="CPU ceiling", options=configurations(self.capacity),
                                   value=max(c for c in configurations(self.capacity) if c <= 8))
+        self.run_mode = w.Dropdown(description="Benchmark", options=[("Selected threads only", (self.ceiling.value,))],
+                                   layout=w.Layout(width="320px"))
         self.location = w.Dropdown(description="Run on", options=[("Notebook session", "local"), ("Slurm CPU allocation", "slurm")],
                                    value="slurm" if (ROOT / "results/slurm.toml").is_file() else "local")
         self.duration = w.Dropdown(description="Time / config", options=[("4 seconds",4),("10 seconds",10),("20 seconds",20)],
@@ -59,13 +61,14 @@ class Dashboard:
         self.start.on_click(self.launch)
         self.stop.on_click(self.cancel)
         self.plan = w.HTML()
-        for widget in (self.level, self.ceiling, self.duration):
+        for widget in (self.level, self.run_mode, self.duration):
             widget.observe(self.describe_plan, names="value")
+        self.ceiling.observe(self.choose_threads, names="value")
         self.location.observe(self.choose_location, names="value")
         self.choose_location()
         self.live = w.HTML(panel('<h3>Worker monitor</h3><p>Start the experiment to sample the Julia process and its threads.</p>'))
         self.status = w.Label()
-        controls = w.Box([self.location, self.level, self.ceiling, self.duration], layout=w.Layout(display="flex",flex_flow="row wrap"))
+        controls = w.Box([self.location, self.level, self.ceiling, self.run_mode, self.duration], layout=w.Layout(display="flex",flex_flow="row wrap"))
         compute_page = w.VBox([controls, self.plan, w.HBox([self.start,self.stop]), self.status,self.live])
         self.saved = w.Dropdown(description="Session", options=[], layout=w.Layout(width="min(600px, 95%)"))
         self.saved.observe(self.load_session, names="value")
@@ -83,7 +86,8 @@ class Dashboard:
         self.segregation = None
         self.segregation_page = w.VBox()
         self.tabs = w.Tab(children=[map_page,compute_page,results_page,self.segregation_page],
-                          titles=["Bait-200 map","Live experiment","Results & replay","Sister segregation"])
+                          titles=["Bait-200 map","Live experiment","Results & replay","Sister segregation"],
+                          selected_index=1 if self.location.value == "slurm" else 0)
         self.tabs.observe(self.open_segregation, names="selected_index")
         self.view = w.VBox([self.header,self.tabs],layout=w.Layout(width="100%"))
         self.refresh_sessions()
@@ -153,17 +157,31 @@ class Dashboard:
         limit = max(1, int(settings().get("benchmark_cpus", 60))) if remote else self.capacity
         steps = configurations(limit)
         self.ceiling.options = steps
-        self.ceiling.value = limit if remote else max(n for n in steps if n <= 8)
+        self.ceiling.value = limit if remote else min(2, limit)
+        self.level.value = (max(self.maps) if remote else min(self.maps),)
+        self.choose_threads()
+        self.run_mode.index = 0
+
+    def choose_threads(self, *_):
+        steps = configurations(self.ceiling.value)
+        options = [("Selected threads only", (self.ceiling.value,))]
+        if len(steps) > 1:
+            reference = max(n for n in steps[:-1] if n <= 16)
+            options.extend([(f"Compare with {reference} thread{'s' if reference != 1 else ''}", (self.ceiling.value, reference)),
+                            ("Thread sweep", tuple(steps))])
+        previous = self.run_mode.index or 0
+        self.run_mode.options = options
+        self.run_mode.index = min(previous, len(options) - 1)
         self.describe_plan()
 
     def describe_plan(self, *_):
         levels = self.level.value
-        threads = configurations(self.ceiling.value) if max(levels)<=404 else [self.ceiling.value]
+        threads = self.run_mode.value
         count = len(levels)*len(threads)
         stages = " → ".join(f"{n:,}" for n in levels)
         target = "Slurm CPU job" if self.location.value == "slurm" else "Notebook session"
         self.plan.value = panel(f'<h3>{target} · {stages} loci</h3><div class="adaMuted">Measure the complete triplet cube at '
-            + ", ".join(map(str,threads))+' thread(s). Each configuration repeats the prediction for the selected measurement window.</div>'
+            + " → ".join(map(str,threads))+' thread(s). Each configuration repeats the prediction for the selected measurement window.</div>'
             +cards([("Largest output",ram(8*max(levels)**3)),("Configurations",str(count)),
                     ("Minimum timed compute",f"{count*self.duration.value} s")])
             +'<div class="adaLabel">Startup, warm-up and numerical checks add time.</div>')
@@ -187,7 +205,7 @@ class Dashboard:
         self.live.value = telemetry(event,self.history,event.get("capacity", self.capacity))
 
     async def run(self):
-        controls = (self.location,self.level,self.ceiling,self.duration,self.start)
+        controls = (self.location,self.level,self.ceiling,self.run_mode,self.duration,self.start)
         for widget in controls:
             widget.disabled = True
         self.stop.disabled = False
@@ -196,9 +214,10 @@ class Dashboard:
             args = (self.level.value,self.ceiling.value,self.duration.value,self.update,self.show_results)
             if self.location.value == "slurm":
                 self.status.value = "Submitting CPU scaling job"
-                dest = await batch_experiment(*args, status=lambda s: setattr(self.status, "value", s))
+                dest = await batch_experiment(*args, status=lambda s: setattr(self.status, "value", s),
+                                              thread_counts=self.run_mode.value)
             else:
-                dest = await experiment(*args)
+                dest = await experiment(*args, thread_counts=self.run_mode.value)
             self.status.value = f"Saved to results/{dest.name}"
             self.live.value = panel('<h3>Experiment complete</h3><p>Open Results &amp; replay to compare throughput and inspect recorded worker activity.</p>')
             self.refresh_sessions(dest)
@@ -244,7 +263,10 @@ class Dashboard:
                     self.samples.append(sample)
         self.replay_capacity = run["cpus"]
         self.replay.max = max(0,len(self.samples)-1)
-        self.replay.value = self.replay.max
+        self.replay.value = max(
+            (i for i, event in enumerate(self.samples) if event["phase"] == "Predicting triplets"),
+            key=lambda i: (self.samples[i]["n"], self.samples[i]["threads"], i),
+            default=self.replay.max)
         self.replay.disabled = not self.samples
         self.inspect.disabled = not run["rows"] or run["rows"][-1]["n"] not in self.maps
         self.draw_replay()

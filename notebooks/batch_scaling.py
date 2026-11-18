@@ -21,18 +21,20 @@ async def run_worker(args):
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     try:
         await experiment(args.levels, args.cpus, args.seconds, lambda _: None, lambda _: None,
-                         directory=args.directory)
+                         directory=args.directory, thread_counts=args.threads)
     except Exception as exc:
         write_text(args.directory / "error.txt", str(exc))
         raise
 
 
-async def batch_experiment(levels, ceiling, seconds, update, completed, status):
+async def batch_experiment(levels, ceiling, seconds, update, completed, status, *, thread_counts=None):
     options = jobs.settings()
     host = options.get("submit_host", "")
     jobs.RESULTS.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(dir=jobs.RESULTS, prefix="session-"))
     arguments = [directory, "--cpus", ceiling, "--seconds", seconds, "--levels", *levels]
+    if thread_counts is not None:
+        arguments.extend(["--threads", *thread_counts])
     if options.get("julia"):
         arguments.extend(["--julia", options["julia"]])
     # Large cubes need enough room for Julia, the cube, and the verification arrays.
@@ -106,6 +108,7 @@ if __name__ == "__main__":
     parser.add_argument("directory", type=Path)
     parser.add_argument("--levels", type=int, nargs="+", required=True)
     parser.add_argument("--cpus", type=int, required=True)
+    parser.add_argument("--threads", type=int, nargs="+")
     parser.add_argument("--seconds", type=float, required=True)
     parser.add_argument("--julia")
     asyncio.run(run_worker(parser.parse_args()))

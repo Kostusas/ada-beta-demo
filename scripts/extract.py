@@ -63,12 +63,14 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     dest = Path(tempfile.mkdtemp(prefix=f"map-{args.stride}kb-", dir=args.output))
     path = dest / "contacts.txt"
-    np.savetxt(path, counts / frames, fmt="%.17g", delimiter="\t")
-    with path.open("rb") as file:
+    pending = dest / "contacts.tmp"
+    np.savetxt(pending, counts / frames, fmt="%.17g", delimiter="\t")
+    with pending.open("rb") as file:
         sha = hashlib.file_digest(file, "sha256").hexdigest()
     metadata = dict(revision=REVISION, stride=args.stride, radius=RADIUS, frames=frames,
                     first_bead=1, common_grid_max_count_difference=max_error, sha256=sha)
     path.with_suffix(".json").write_text(json.dumps(metadata, indent=2) + "\n")
+    pending.replace(path)
     print(path.resolve())
 
 
