@@ -43,7 +43,12 @@ class Scheduler:
             script_index = cmd.index(str(ROOT / "scripts/segregation-query.sbatch"))
             proc = None
             if not self.hold:
-                proc = subprocess.Popen(["/bin/sh", *cmd[script_index:]], cwd=ROOT,
+                worker_args = cmd[script_index:]
+                if worker_args[-3] == "CUDA":
+                    # Exercise GPU routing and the cache key while keeping this test CPU-only.
+                    assert any(arg.startswith("--gres=gpu:") for arg in cmd)
+                    worker_args[-3] = "CPU"
+                proc = subprocess.Popen(["/bin/sh", *worker_args], cwd=ROOT,
                                         env={**env, "SLURM_JOB_ID": job, "SLURM_CPUS_PER_TASK": "2"})
             self.jobs.append((job, proc))
             return subprocess.CompletedProcess(cmd, 0, "Welcome to the cluster\n" + job + ";ada\n", "")
@@ -149,10 +154,41 @@ def run():
                 assert proc.wait(timeout=10) == 0
             assert len(sim.jobs) == 3 and reconnected["job"] == "103"
             assert load_result(folder / "result.npz")["stage"] == 0.5
+
+            def gpu(fresh=False):
+                return jobs.request(PREVIEW, index, digest, 50, 2, "CUDA", stop, quiet,
+                                    cache=root / "cache", fresh=fresh)
+
+            def gpu_type(model):
+                (root / "slurm.toml").write_text(
+                    f'partition="test"\ncpus=2\nsubmit_host="test-host"\ngres="gpu:{model}:1"\n'
+                )
+
+            gpu_type("a30")
+            a30, _ = gpu()
+            assert gpu()[1] == "Saved result"
+            gpu_type("h200")
+            h200, _ = gpu()
+            assert h200["job"] != a30["job"] and gpu()[1] == "Saved result"
+            sim.reject = True
+            try:
+                gpu(fresh=True)
+            except RuntimeError as exc:
+                assert "unknown partition" in str(exc)
+            else:
+                raise AssertionError("Expected a rejected fresh submission")
+            assert gpu()[0]["job"] == h200["job"]
+            sim.reject = False
+            updated, _ = gpu(fresh=True)
+            assert updated["job"] != h200["job"] and gpu()[0]["job"] == updated["job"]
+            gpu_type("a30")
+            assert gpu()[0]["job"] == a30["job"]
+            for _, proc in sim.jobs[3:]:
+                assert proc.wait(timeout=10) == 0
     print("Verified stage-only batch execution, reference parity, deduplication, replay, rejection, cancellation, retry and reconnect.")
 
 
-def check_ada_gpu():
+def check_ada_gpu(fresh=False):
     """Exercise the notebook's real submit/cache path on the eight archived tracks."""
     stop = threading.Event()
     index = index_path(PREVIEW)
@@ -165,7 +201,7 @@ def check_ada_gpu():
             print(message, flush=True)
             previous = message
 
-    result, source = jobs.request(PREVIEW, index, digest, 50, 2.0, "CUDA", stop, status)
+    result, source = jobs.request(PREVIEW, index, digest, 50, 2.0, "CUDA", stop, status, fresh=fresh)
     reference = Ensemble(PREVIEW, "CPU", 2, 0, stop, quiet).compare(0.5, 2, stop, quiet)
     np.testing.assert_allclose(result["difference"], reference["difference"], equal_nan=True)
     for gpu, cpu in zip(result["points"], reference["points"], strict=True):
@@ -174,13 +210,13 @@ def check_ada_gpu():
     assert result["pairs"] == reference["pairs"] and result["job"]
     _, replay = jobs.request(PREVIEW, index, digest, 50, 2.0, "CUDA", stop, status)
     assert replay == "Saved result"
-    print(f"{source} · {result['device']} on {result['node']} · CPU agreement and saved replay passed.")
+    print(f"{source} · measured by job {result['job']} · {result['device']} on {result['node']} · CPU agreement and saved replay passed.")
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--slurm-gpu"]:
-        check_ada_gpu()
+    if sys.argv[1:] in (["--slurm-gpu"], ["--slurm-gpu", "--fresh"]):
+        check_ada_gpu(fresh="--fresh" in sys.argv)
     elif not sys.argv[1:]:
         run()
     else:
-        raise SystemExit("Usage: python tests/check_batch_queries.py [--slurm-gpu]")
+        raise SystemExit("Usage: python tests/check_batch_queries.py [--slurm-gpu [--fresh]]")

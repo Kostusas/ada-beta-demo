@@ -44,7 +44,9 @@ For the one-time archive preparation, run the `sbatch` command below directly in
 
 For a numerical check from the OnDemand terminal, run `.venv/bin/python tests/check_batch_queries.py --slurm-gpu`. This uses the same GPU submission and saved-result path as the notebook, compares the tiny GPU result with an independent CPU run, and checks that the repeat is served from disk. Run the check after the walkthrough above to verify the GPU result you just saw.
 
-**Stop** cancels the active job. A submission or worker error appears in the notebook. Worker errors include the path to the job log under `results/segregation-queries/`. After an unexpected kernel exit, repeat the same query to reconnect to the job or read its result. The shared cache uses a dataset fingerprint, calculation version, backend, stage and radius. Concurrent requests for the same calculation share one submission.
+Changing the Slurm partition or GPU resource request gives GPU measurements a separate cache, so an A30 result can coexist with an H200 result for the same stage. To rerun the tiny comparison on the currently configured hardware, use `.venv/bin/python tests/check_batch_queries.py --slurm-gpu --fresh`. A successful run replaces that configuration’s saved result. The output includes the original measuring job, device model and node. GPU results from versions that omitted the GPU request from the cache key stay on disk.
+
+**Stop** cancels the active job. A submission or worker error appears in the notebook. Worker errors include the path to the job log under `results/segregation-queries/`. After an unexpected kernel exit, repeat the same query to reconnect to the job or read its result. The shared cache uses a dataset fingerprint, calculation version, backend, stage and radius, plus partition and GPU request for GPU jobs. Concurrent requests for the same calculation share one submission.
 
 ### Prepare the full dataset once
 

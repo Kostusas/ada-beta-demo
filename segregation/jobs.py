@@ -1,6 +1,7 @@
 """One batch submission per new query, with a shared, versioned result cache."""
 
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -66,37 +67,55 @@ def submit(folder, index, stage, radius, backend, output, attempt, options):
     return job_ids[0]
 
 
-def request(folder, index, index_id, stage, radius, backend, stop, status, *, cache=CACHE):
+def file_stamp(path):
+    try:
+        info = path.stat()
+    except FileNotFoundError:
+        return None
+    return info.st_ino, info.st_mtime_ns
+
+
+def request(folder, index, index_id, stage, radius, backend, stop, status, *, cache=CACHE, fresh=False):
     if backend not in ("local", "CPU", "CUDA") or (backend == "local" and folder != PREVIEW):
         raise ValueError("In-session calculation is available for the tiny preview only.")
     if stage not in range(5, 100, 5) or not (1 <= radius <= 4 and radius * 4 == int(radius * 4)):
         raise ValueError("Choose a stage and contact radius supported by the dashboard.")
     directory = cache / f"v{QUERY_VERSION}" / index_id / f"{backend}-{stage}-{int(radius * 4)}"
+    config = RESULTS / "slurm.toml"
+    options = tomllib.loads(config.read_text()) if backend != "local" and config.is_file() else {}
+    if backend == "CUDA":
+        # A performance measurement belongs to the GPU allocation that produced it.
+        allocation = json.dumps([options.get("partition", ""), options.get("gres", "gpu:1")])
+        directory /= "gpu-" + hashlib.sha256(allocation.encode()).hexdigest()[:16]
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / "result.npz"
     active = directory / "active.json"
+    at_request = file_stamp(output) if fresh else None
     with (directory / "lock").open("a") as lock:
         while True:
             check_stop(stop)
-            if output.is_file():
-                return load_result(output), "Saved result"
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
                 status("Waiting for the same query in another session")
                 stop.wait(0.25)
-        if output.is_file():
-            return load_result(output), "Saved result"
+        previous = file_stamp(output)
+        running = json.loads(active.read_text()) if active.is_file() else None
+        if previous is not None:
+            saved = load_result(output)
+            if running and saved["job"] == running[1]:
+                active.unlink()
+                running = None
+            if not running and (not fresh or previous != at_request):
+                return saved, "Saved result"
         if backend == "local":
             compute(folder, index, stage, radius, backend, output, stop,
                     lambda label, done, total: status(f"{label} · {done:,}/{total:,}"))
             return load_result(output), "Computed in the preview session"
-        config = RESULTS / "slurm.toml"
-        options = tomllib.loads(config.read_text()) if config.is_file() else {}
         submit_host = options.get("submit_host", "")
-        if active.exists():
-            attempt_name, job, *route = json.loads(active.read_text())
+        if running:
+            attempt_name, job, *route = running
             # A job started directly on ADA can be resumed from its Jupyter container.
             if route and route[0]:
                 submit_host = route[0]
@@ -108,14 +127,15 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
             write_text(active, json.dumps([attempt.name, job, submit_host]))
         scheduler_state = "Submitted"
         next_check = time.monotonic() + 5
-        missing = False
+        missing_since = None
         while True:
-            if output.is_file():
+            completed = file_stamp(output)
+            if completed is not None and completed != previous:
                 active.unlink(missing_ok=True)
                 return load_result(output), f"Slurm job {job}"
             if stop.is_set():
                 cancel = scheduler(["scancel", job], submit_host=submit_host)
-                if cancel.returncode and not output.exists():
+                if cancel.returncode and file_stamp(output) == previous:
                     raise RuntimeError(f"Could not stop job {job}: {cancel.stderr.strip()}")
                 active.unlink(missing_ok=True)
                 raise InterruptedError(f"Stopped job {job}")
@@ -129,13 +149,18 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
                 gone = (not state.returncode and row is None) or "invalid job id" in state.stderr.lower()
                 if state.returncode and not gone:
                     raise RuntimeError(f"Could not check job {job}: {state.stderr.strip()}. Compare again to reconnect.")
-                if gone and missing:
-                    active.unlink(missing_ok=True)
-                    raise RuntimeError(f"Job {job} ended without a result. See {attempt / 'slurm.log'}")
-                missing = gone
+                if gone:
+                    if missing_since is None:
+                        missing_since = now
+                    elif now - missing_since >= 60:
+                        active.unlink(missing_ok=True)
+                        raise RuntimeError(f"Job {job} left the queue without a visible result. See {attempt / 'slurm.log'}")
+                else:
+                    missing_since = None
                 scheduler_state = row[1] if row else "Checking for output"
                 next_check = now + 8
             progress_file = attempt / "progress"
-            detail = progress_file.read_text() if progress_file.exists() else scheduler_state
+            detail = (progress_file.read_text()
+                      if missing_since is None and progress_file.exists() else scheduler_state)
             status(f"Job {job} · {detail}")
             stop.wait(0.25)
