@@ -10,11 +10,11 @@ from pathlib import Path
 import ipywidgets as w
 import numpy as np
 import plotly.graph_objects as go
-import psutil
 
-from session_resources import cpu_capacity
-
-from .engine import FULL, PREVIEW, Ensemble, N, WINDOW
+from .engine import FULL, PREVIEW, Coordinates, N, WINDOW
+from .index import build_index, index_path
+from .jobs import request
+from .timing import PlotTiming
 
 COLORS = ("#63d9cb", "#ffab75")
 THEME = dict(
@@ -35,26 +35,11 @@ class SegregationView:
         self.dataset = w.Dropdown(
             options=options, value=options[-1][1], description="Dataset"
         )
-        self.backend = w.Dropdown(options=["CPU", "CUDA"], description="Compute")
-        if len(options) > 1:
-            try:
-                import cupy
-
-                if cupy.cuda.runtime.getDeviceCount():
-                    self.backend.value = "CUDA"
-            except (ImportError, OSError, RuntimeError):
-                pass
-        cap = min(60, cpu_capacity())
-        self.workers = w.BoundedIntText(
-            min=1,
-            max=cap,
-            value=cap if len(options) > 1 else min(2, cap),
-            description="CPU workers",
+        self.backend = w.Dropdown(description="Run on")
+        self.compare_button = w.Button(
+            description="Compare stage", icon="play", button_style="primary"
         )
-        self.limit = w.BoundedIntText(min=0, max=512, value=64, description="Cache GiB")
-        self.warm = w.Button(
-            description="Warm ensemble", icon="bolt", button_style="primary"
-        )
+        self.configuring = False
         self.stop = w.Button(description="Stop", icon="stop", disabled=True)
         self.stage = w.SelectionSlider(
             options=[("25%", 25), ("50%", 50), ("75%", 75)],
@@ -70,6 +55,9 @@ class SegregationView:
             continuous_update=False,
             description="Radius",
         )
+        for control in (self.stage, self.radius, self.compare_button):
+            control.add_class("ada-query-trigger")
+        self.timing = PlotTiming()
         self.plan = w.HTML()
         self.progress = w.HTML()
         self.metrics = w.HTML()
@@ -195,7 +183,7 @@ class SegregationView:
             children=[
                 w.VBox(
                     [
-                        row([self.dataset, self.backend, self.workers, self.limit]),
+                        row([self.dataset, self.backend]),
                         self.plan,
                     ]
                 )
@@ -209,8 +197,9 @@ class SegregationView:
                     "<h2>Sister chromosome segregation</h2>Choose a replication stage to compare matched tethered simulations with and without non-topological SMC. Click any point to inspect its sister chromosomes."
                 ),
                 settings,
-                row([self.warm, self.stop]),
+                row([self.compare_button, self.stop]),
                 self.progress,
+                self.timing,
                 row([self.stage, self.radius]),
                 self.metrics,
                 self.pair,
@@ -220,42 +209,51 @@ class SegregationView:
                 self.map,
             ]
         )
-        self.warm.on_click(lambda _: self.launch(True))
+        self.view.add_class("ada-segregation-view")
+        self.compare_button.on_click(self.launch)
         self.stop.on_click(lambda _: self.cancel())
         self.pick.observe(self.select, names="value")
         self.frame.observe(self.draw, names="value")
         self.pin.on_click(self.toggle_pin)
         for control in (self.stage, self.radius):
             control.observe(self.query_change, names="value")
-        for control in (self.dataset, self.backend, self.limit, self.workers):
-            control.observe(self.invalidate, names="value")
-        self.describe()
-        self.progress.value = "Warm once to enable live stage and radius changes."
-        if self.dataset.value == str(PREVIEW):
-            self.launch(True)
+        self.dataset.observe(self.configure_dataset, names="value")
+        self.backend.observe(self.change_backend, names="value")
+        self.configure_dataset()
+        if self.backend.value == "local":
+            self.launch()
 
-    def describe(self):
-        meta = json.loads((Path(self.dataset.value) / "manifest.json").read_text())
-        stages = (25, 50, 75) if meta["preview"] else range(5, 100, 5)
-        selected = self.stage.value
-        self.stage.options = [(f"{s}%", s) for s in stages]
-        self.stage.value = selected if selected in stages else 50
-        frames = sum(t["frames"] for t in meta["tracks"])
-        size = frames * N * N * 4 / 2**30
-        store = "VRAM" if self.backend.value == "CUDA" else "RAM"
-        self.plan.value = (
-            f"<b>{len(meta['tracks']):,} trajectories · {frames:,} frames</b> · "
-            f"{size:,.2f} GiB for reusable squared distances in {store}. "
-            "A smaller cache budget selects on-demand calculation."
-        )
+    def configure_dataset(self, *_):
+        self.configuring = True
+        try:
+            folder = Path(self.dataset.value)
+            preview = folder == PREVIEW
+            self.clear()
+            self.engine = None
+            choices = [("Slurm GPU", "CUDA"), ("Slurm CPU", "CPU")]
+            if preview:
+                choices.insert(0, ("Session preview", "local"))
+            self.backend.options = choices
+            self.backend.value = choices[0][1]
+            stages = (25, 50, 75) if preview else range(5, 100, 5)
+            self.stage.options = [(f"{s}%", s) for s in stages]
+            self.stage.value = 50
+            meta = json.loads((folder / "manifest.json").read_text())
+            frames = sum(t["frames"] for t in meta["tracks"])
+            self.plan.value = f"<b>{len(meta['tracks']):,} trajectories · {frames:,} archived frames</b>"
+            self.change_backend()
+        finally:
+            self.configuring = False
 
-    def invalidate(self, *_):
-        self.engine = None
+    def change_backend(self, *_):
         self.clear()
-        self.describe()
-        self.progress.value = "Warm the selected configuration to start."
+        if self.backend.value == "local":
+            self.progress.value = "Select a stage or press Compare stage to run the tiny preview."
+        else:
+            self.progress.value = "Select a stage or press Compare stage. Each new query submits one batch job."
 
     def clear(self):
+        self.timing.revision = ""
         self.points = []
         self.pinned_track = None
         self.pin.disabled = True
@@ -277,99 +275,71 @@ class SegregationView:
         self.source.value = self.metrics.value = ""
 
     def query_change(self, *_):
-        if self.engine is not None:
-            self.launch(False)
+        if not self.configuring:
+            self.launch()
 
-    def launch(self, warm):
-        if self.task is None or self.task.done():
-            self.stop_event = threading.Event()
-            self.task = asyncio.create_task(self.run(warm))
+    def launch(self, *_):
+        if self.task is not None and not self.task.done():
+            return
+        self.stop_event = threading.Event()
+        for control in self.query_controls:
+            control.disabled = True
+        self.stop.disabled = False
+        self.task = asyncio.create_task(self.run())
+
+    @property
+    def query_controls(self):
+        return (self.dataset, self.backend, self.compare_button, self.stage, self.radius)
 
     def cancel(self):
         self.stop_event.set()
 
-    async def run(self, warm):
-        controls = (
-            self.dataset,
-            self.backend,
-            self.limit,
-            self.workers,
-            self.warm,
-            self.stage,
-            self.radius,
-        )
-        for c in controls:
-            c.disabled = True
-        self.stop.disabled = False
-        latest = ("Starting", 0, 1)
+    async def run(self):
         started = time.perf_counter()
+        latest = "Opening stage index"
+        folder = Path(self.dataset.value)
+        index = index_path(folder)
+        backend, stage, radius = self.backend.value, self.stage.value, self.radius.value
 
-        def progress(label, done, total):
+        def status(message):
             nonlocal latest
-            latest = (label, done, total)
+            latest = message
 
-        async def work(function, *args):
-            proc = psutil.Process()
-            previous_cpu, previous_wall = time.process_time(), time.perf_counter()
-            task = asyncio.create_task(asyncio.to_thread(function, *args))
-            while not task.done():
-                label, done, total = latest
-                now_cpu, now_wall = time.process_time(), time.perf_counter()
-                busy = (now_cpu - previous_cpu) / max(1e-6, now_wall - previous_wall)
-                cpu_text = f" · {busy:.1f} busy CPU equivalents" if now_wall - previous_wall > 0.05 else ""
-                previous_cpu, previous_wall = now_cpu, now_wall
-                self.progress.value = (
-                    f"<b>{label}</b> · {done:,} / {total:,} · {now_wall - started:.1f} s "
-                    f"· kernel RSS {proc.memory_info().rss / 2**30:.2f} GiB{cpu_text}"
-                )
-                await asyncio.wait({task}, timeout=0.18)
-            return await task
+        def compare():
+            if folder == PREVIEW:
+                build_index(folder, index, 2)
+            elif not (index / "index.json").is_file():
+                raise ValueError("Prepare the shared stage index with scripts/prepare-segregation.sbatch. See docs/segregation.md.")
+            coords = Coordinates(folder, 1, self.stop_event, None, index=index)
+            result, source = request(folder, index, coords.index_id, stage, radius, backend,
+                                     self.stop_event, status)
+            return coords, result, source
 
         try:
-            if warm:
-                self.engine = None
-                self.clear()
-                warm_cpu = time.process_time()
-                warm_start = time.perf_counter()
-                self.engine = await work(
-                    Ensemble,
-                    self.dataset.value,
-                    self.backend.value,
-                    self.workers.value,
-                    self.limit.value,
-                    self.stop_event,
-                    progress,
-                )
-                self.warm_seconds = time.perf_counter() - warm_start
-                self.warm_busy = (time.process_time() - warm_cpu) / self.warm_seconds
-            result = await work(
-                self.engine.compare,
-                self.stage.value / 100,
-                self.radius.value,
-                self.stop_event,
-                progress,
-            )
-            self.present(result)
+            work = asyncio.create_task(asyncio.to_thread(compare))
+            while not work.done():
+                self.progress.value = f"{escape(latest)} · {time.perf_counter() - started:.1f} s"
+                await asyncio.wait({work}, timeout=0.2)
+            self.engine, result, source = await work
+            revision = str(time.monotonic_ns())
+            self.present(result, revision)
             self.progress.value = (
-                f"<b>{escape(self.engine.device)}</b> · warm-up {self.warm_seconds:.2f} s · {self.warm_busy:.1f} average busy CPUs · {self.engine.workers} configured workers · "
-                + (
-                    "resident distance cache"
-                    if self.engine.cached
-                    else "computing distances in bounded batches"
-                )
+                f"<b>{escape(source)}</b> · {time.perf_counter() - started:.2f} s from request "
+                "to plot update in kernel"
             )
+            self.timing.revision = revision
         except InterruptedError:
             self.clear()
-            self.progress.value = "Stopped. Warm or change the stage to run again."
+            self.progress.value = "Stopped. Choose a stage or press Compare stage to retry."
         except Exception as exc:
             self.clear()
-            self.progress.value = "<b>Experiment error</b> · " + escape(str(exc))
+            self.progress.value = "<b>Comparison failed</b> · " + escape(str(exc))
         finally:
-            for c in controls:
-                c.disabled = False
+            for control in self.query_controls:
+                control.disabled = False
             self.stop.disabled = True
 
-    def present(self, result):
+    def present(self, result, revision):
         previous = (
             self.points[self.pick.value]["track"]
             if self.points and self.pick.value is not None
@@ -380,6 +350,7 @@ class SegregationView:
         for idx, p in enumerate(self.points):
             self.trace_points[int(p["condition"] == "SMC")].append(idx)
         with self.scatter.batch_update():
+            self.scatter.layout.meta = revision
             for trace, ids in zip(self.scatter.data, self.trace_points):
                 trace.x = [self.points[i]["score"] for i in ids]
                 trace.y = [self.points[i]["contacts"] for i in ids]
@@ -390,21 +361,20 @@ class SegregationView:
         coarse = np.full(support.shape, np.nan)
         np.divide(np.nansum(tiled, axis=(1, 3)), support, out=coarse, where=support > 0)
         with self.map.batch_update():
+            self.map.layout.meta = revision
             self.map.data[0].z = coarse.T
             self.map.data[0].x = self.map.data[0].y = np.arange(101) * 4 + 1.5
-        e = self.engine
-        store = "VRAM" if e.cp else "RAM"
         self.metrics.value = (
             f"<b>{len(self.points):,} trajectories</b> · {result['frames']:,} frames · "
             f"{result['pairs']:,} eligible locus pairs · <b>{result['seconds'] * 1000:,.0f} ms</b> analysis · "
-            f"{result['pairs'] / result['seconds'] / 1e6:,.1f} M eligible pairs/s · "
-            f"{result['busy']:.1f} busy CPU equivalents<br>"
-            f"{e.coordinate_bytes / 2**20:,.1f} MiB coordinates in RAM · {e.pair_bytes / 2**30:,.3f} GiB distance cache in {store} · "
+            f"{result['pairs'] / result['seconds'] / 1e6:,.1f} M eligible pairs/s<br>"
+            f"{escape(result['device'])} on {escape(result['node'])} · {result['busy']:.1f} busy CPU equivalents "
+            f"({result['cpus']} configured) · "
+            f"{result['peak_rss'] / 2**20:,.0f} MiB peak process RAM · "
             f"stage {result['stage']:.0%} ± 4 percentage points · radius {result['radius']:.2f} monomers"
         )
-        if e.cp:
-            free, total = e.cp.cuda.runtime.memGetInfo()
-            self.metrics.value += f" · device memory in use {(total - free) / 2**30:.1f} / {total / 2**30:.1f} GiB"
+        if result["cuda_pool"]:
+            self.metrics.value += f" · {result['cuda_pool'] / 2**20:,.0f} MiB CUDA pool reserved at finish"
         self.pick.options = [(self.name(i), i) for i in range(len(self.points))]
         self.pick.value = next(
             (i for i, p in enumerate(self.points) if p["track"] == previous), 0

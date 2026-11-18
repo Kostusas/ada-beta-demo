@@ -1,0 +1,8 @@
+# Copy to results/slurm.toml. Use the partition and GPU resource name listed on your cluster.
+partition = ""
+gres = "gpu:1"
+cpus = 4
+memory = "8G"
+time = "00:10:00"
+# account = ""
+# qos = ""

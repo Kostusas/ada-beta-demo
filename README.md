@@ -1,12 +1,12 @@
 # Chromosome contacts on ADA
 
-Open the [demo notebook](notebooks/demo.ipynb) in your running [Open OnDemand JupyterLab session](https://ondemand.labs.vu.nl) and choose **Run All Cells**. The experiments use the session’s CPUs, memory and optional CUDA GPU. Julia and the scientific Python kernel are assumed to be available.
+Open the [demo notebook](notebooks/demo.ipynb) in your running [Open OnDemand JupyterLab session](https://ondemand.labs.vu.nl) and choose **Run All Cells**. The bait-200 map opens inside the session. New segregation calculations can run as short Slurm jobs on a separate GPU node. Julia and the scientific Python kernel are assumed to be available.
 
 ![Condensin pair-contact frequencies and predicted three-point contacts at bait 200](examples/contacts.png)
 
 ## Compare sister chromosomes
 
-Select **Sister segregation** to compare matched trajectories from Harju, van Teeseling and Broedersz’s 2024 study. Pick a replication stage, vary the contact radius, and click an outlier to rotate its sister chromosomes in 3-D. Pin it and click another point to compare their segregation histories. The repository includes eight archived trajectories sampled at three stages. On ADA you can stage the 603-trajectory ensemble, prepare it with up to 60 CPU workers and keep inter-sister distances resident on an H200 for live queries. [H200 setup and presentation guide](docs/segregation.md) · [Paper](https://doi.org/10.1038/s41467-024-49039-w)
+Select **Sister segregation** to compare matched trajectories from Harju, van Teeseling and Broedersz’s 2024 study. Pick a replication stage, vary the contact radius, and click an outlier to rotate its sister chromosomes in 3-D. Pin it and click another point to compare their segregation histories. The repository includes eight archived trajectories sampled at three stages. On ADA each new stage and contact radius can submit a single H200 job. The job reads that window of the 603-trajectory ensemble, saves the result and exits. Returning to a saved comparison displays it immediately. The guide includes an eight-trajectory GPU smoke test you can run before staging the full archive. [H200 setup and presentation guide](docs/segregation.md) · [Paper](https://doi.org/10.1038/s41467-024-49039-w)
 
 ![A selected SMC trajectory at half replication and its two sister chromosomes in 3-D](examples/segregation.png)
 

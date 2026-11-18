@@ -1,5 +1,6 @@
 """Resident trajectory coordinates and optional CPU/CUDA inter-sister distance cache."""
 
+import hashlib
 import json
 import threading
 import time
@@ -71,29 +72,30 @@ if ((a >= lo && a <= hi) || (b >= lo && b <= hi)) {
 """
 
 
-class Ensemble:
-    def __init__(self, folder, backend, workers, budget_gib, stop, progress):
+ARRAY_NAMES = ("pos", "forks", "block", "group", "track", "score", "fraction")
+
+
+def read_index_id(folder, index):
+    meta = json.loads((index / "index.json").read_text())
+    digest = hashlib.sha256((folder / "manifest.json").read_bytes()).hexdigest()
+    if meta["manifest_sha256"] != digest:
+        raise ValueError("The stage index belongs to a different trajectory manifest.")
+    return meta["id"]
+
+
+class Coordinates:
+    def __init__(self, folder, workers, stop, progress, *, index=None):
         self.folder = Path(folder)
         self.meta = json.loads((self.folder / "manifest.json").read_text())
         self.tracks = self.meta["tracks"]
         if self.meta["version"] != 1 or not self.tracks:
             raise ValueError("Unsupported or empty trajectory manifest")
         self.workers = min(max(1, workers), cpu_capacity(), 60)
-        self.cp = None
-        self.device = "CPU"
-        if backend == "CUDA":
-            import cupy as cp
-
-            cp.cuda.Device().use()
-            self.cp = cp
-            self.device = cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
-            self.kernel = cp.ElementwiseKernel(
-                "raw float32 pos, raw int16 forks",
-                "float32 distance",
-                CUDA_CODE,
-                "sister_squared_distance",
-                options=("--fmad=false",),
-            )
+        if index is not None:
+            self.index_id = read_index_id(self.folder, index)
+            for key in ARRAY_NAMES:
+                setattr(self, key, np.load(index / f"{key}.npy", mmap_mode="r", allow_pickle=False))
+            return
         offsets = np.cumsum([0] + [t["frames"] for t in self.tracks])
         size = int(offsets[-1])
         self.pos = np.empty((size, 2 * N, 3), np.float32)
@@ -102,7 +104,6 @@ class Ensemble:
         self.group = np.empty(size, np.int64)
         self.track = np.empty(size, np.int32)
         self.score = np.empty(size, np.float64)
-        self.distance = None
 
         def load(i):
             check_stop(stop)
@@ -129,8 +130,30 @@ class Ensemble:
         self.fraction = 1 - (self.forks[:, 1] - self.forks[:, 0]).astype(float) / N
         # Adjacent stages become contiguous ranges in RAM and VRAM.
         order = np.argsort(self.fraction, kind="stable")
-        for key in ("pos", "forks", "block", "group", "track", "score", "fraction"):
+        for key in ARRAY_NAMES:
             setattr(self, key, getattr(self, key)[order])
+
+
+class Ensemble(Coordinates):
+    def __init__(self, folder, backend, workers, budget_gib, stop, progress, *, index=None):
+        super().__init__(folder, workers, stop, progress, index=index)
+        size = len(self.fraction)
+        self.distance = None
+        self.cp = None
+        self.device = "CPU"
+        if backend == "CUDA":
+            import cupy as cp
+
+            cp.cuda.Device().use()
+            self.cp = cp
+            self.device = cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
+            self.kernel = cp.ElementwiseKernel(
+                "raw float32 pos, raw int16 forks",
+                "float32 distance",
+                CUDA_CODE,
+                "sister_squared_distance",
+                options=("--fmad=false",),
+            )
         self.labels = np.array(
             [0 if t["condition"] == "No SMC" else 1 for t in self.tracks]
         )

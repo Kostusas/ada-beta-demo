@@ -2,32 +2,46 @@
 
 Open **Sister segregation** beside the bait-200 map. The included 2024 preview loads eight real trajectories on CPU. Pick 25%, 50% or 75% replication. Click a point in the scatter plot, rotate the two sisters in 3-D, and move **Frame** to inspect the observations behind that point. Cyan and orange lines in the 3-D scene are the two replicated copies. Gray traces the shared unreplicated segment. The label below the scene includes the original HDF5 group and simulation block.
 
-## Stage the full ensemble once on ADA
+## Connect the capped OnDemand session to Slurm
 
-Run these commands from the clone in the allocated OnDemand session. The published archive is **10.47 GB**. Allow space for both the ZIP and the packed coordinate files on shared project storage. The tool verifies the archive MD5 before conversion and selects the two parameter-matched directories. The ZIP contains 303 no-SMC trajectories and 300 non-topological-SMC trajectories in this comparison.
+JupyterLab uses the ordinary four-CPU, 32 GB OnDemand allocation. A new stage or radius submits one short batch job on your compute partition. The job reads the selected stage window, calculates its map and scatter points, writes the result, and exits. Repeating a query opens the saved result, including after a kernel restart. Viewing a trajectory, pinning it and rotating it use the shared coordinates and the browser. [ADA OnDemand](https://rdm.vu.nl/tools/ada/open-ondemand.html) · [ADA Slurm guide](https://rdm.vu.nl/tools/ada/slurm.html)
+
+Use a clone on shared project storage with standard file locking, visible at the same path from both nodes. Both nodes must see the Python environment and the `results` directory. Run once from the clone in your OnDemand terminal:
 
 ```sh
 uv sync --locked --extra lab --extra segregation --extra cuda12
 .venv/bin/python -m ipykernel install --user --name ada-contacts --display-name "ADA chromosome contacts"
 mkdir -p results
-curl --fail --location --retry 3 --continue-at - --output results/Simulation_data.zip https://zenodo.org/records/10877077/files/Simulation_data.zip
-.venv/bin/python -m segregation.prepare results/Simulation_data.zip
-.venv/bin/python tests/check_segregation.py --cuda
+cp -n slurm.example.toml results/slurm.toml
 ```
 
-The optional `cuda12` extra supplies CuPy and CUDA 12 userspace packages for Linux x86-64. It needs a compatible NVIDIA driver. A kernel already providing compatible CuPy can use it directly. The CPU environment uses the `lab` and `segregation` extras alone. The CUDA check compares cached and streaming device results with the CPU on a few real frames before you warm the full ensemble. [CuPy installation guide](https://docs.cupy.dev/en/stable/install.html)
+Edit **`results/slurm.toml`** and set `partition` to the name of your dedicated GPU partition. The default request is one GPU, four CPU cores, 8 GiB of host memory and ten minutes. On a partition with multiple GPU models, set `gres` to the H200 resource string advertised on ADA. Set `account` or `qos` if your partition requires it. The notebook reads the file for each new submission. The H200 handles the pair calculations in batches. The CPU and memory settings are for the separate Slurm job. [Slurm GPU resources](https://slurm.schedmd.com/gres.html)
 
-Packing uses up to 60 independent CPU processes, capped by the visible session capacity and trajectory count. Each process reads its own ZIP member and prepares a compact trajectory file. Pass `--workers 8` for a smaller allocation. A successful conversion publishes a complete `results/segregation-2024/` directory. Keep it for subsequent sessions.
+### Try a real submission before downloading the archive
 
-Select **ADA chromosome contacts** in JupyterLab, restart the kernel after updating the clone, and run the notebook. The existing JupyterLab frontend needs ipywidgets and the anywidget frontend extension to render Plotly FigureWidgets. If the OnDemand server uses a separate environment, expose the locked environment’s `.venv/share/jupyter` through the app’s `JUPYTER_PATH` at launch, or install anywidget in the server environment. [Plotly widget documentation](https://plotly.com/python/figurewidget/)
+1. In JupyterLab select **ADA chromosome contacts**, restart the kernel, and run all cells in `notebooks/demo.ipynb`. Open **Sister segregation** and expand **Ensemble and compute settings**.
+2. Select **Eight archived trajectories**, **Slurm GPU** and **50%** replication at radius **2**. Click **Compare stage**. The notebook shows the job ID and then the worker’s GPU model and hostname. Expect **24 frames and 965,373 eligible pairs**. The included preview also offers **Session preview** for local CPU use.
+3. Release the replication slider at **75%**, then return to **50%**. The first change requests another calculation. The second displays **Saved result**. Click a scatter point, rotate its chromosomes and use **Pin trajectory** to compare its history with another point.
+4. The dashboard times each interaction in the browser, from the slider or button gesture until both the scatter and contact map show the new result. The kernel also reports its own request-to-update time. The metrics separately report the original worker’s calculation time, throughput, busy CPU equivalents, peak process RAM, and CUDA memory pool reserved at completion. On replay the worker metrics describe the saved calculation.
 
-## Warm before the meeting
+For a numerical check from the OnDemand terminal, run `.venv/bin/python tests/check_batch_queries.py --slurm-gpu`. This uses the same GPU submission and saved-result path as the notebook, compares the tiny GPU result with an independent CPU run, and checks that the repeat is served from disk. Run the check after the walkthrough above to verify the GPU result you just saw.
 
-Select **Full matched ensemble**, **CUDA**, up to **60 CPU workers**, and a **64 GiB cache budget**. The tab reports the exact frame count and cache size from the prepared manifest. Click **Warm ensemble**. CPU workers decompress tracks, compute per-frame segregation and put coordinates in host RAM. CUDA builds a contiguous distance array ordered by replication stage. It contains one Float32 squared distance for each old–new locus pair per frame, with out-of-scope pairs masked. Each of the eight inspected source trajectories had 149 frames. If all 603 have that length, the reusable distances occupy **54.6 GiB** of VRAM.
+**Stop** cancels the active job. A submission or worker error appears in the notebook. Worker errors include the path to the job log under `results/segregation-queries/`. After an unexpected kernel exit, repeat the same query to reconnect to the job or read its result. The shared cache uses a dataset fingerprint, calculation version, backend, stage and radius. Concurrent requests for the same calculation share one submission.
 
-Warming happens once per dataset/backend configuration in the live kernel. Selecting another stage or dragging the radius changes the query against those distances. **Cache GiB** limits the distance array. If it exceeds that limit or 75% of available backend memory, the engine computes the requested stage in batches. Set the budget to zero to compare this streaming path with a warm cache. The CPU backend can keep the same distance array in host RAM and reduce it using multiple threads. The displayed RSS and cache size describe different allocations. CUDA device occupancy includes memory in use by other processes on that device.
+### Prepare the full dataset once
 
-For a presentation, start halfway through replication. Click an unusually low-segregation trajectory and press **Pin trajectory**. Click a point from the other condition with a similar contact fraction. The history plot now follows both trajectories across replication. Its shaded band is the chosen stage window. The diamond marks the archived frame in the 3-D view. Scrub the frames, then change the radius and watch where the contact difference map changes. The metrics give the number of eligible pairs, pairs per second, comparison wall time and average process CPU equivalents. The latency excludes widget rendering and the initial warm-up.
+The source ZIP is 10.47 GB. Keep space on shared storage for the ZIP, packed tracks and stage-sorted coordinate index. From the clone:
+
+```sh
+curl --fail --location --retry 3 --continue-at - --output results/Simulation_data.zip https://zenodo.org/records/10877077/files/Simulation_data.zip
+sbatch --partition=YOUR_PARTITION scripts/prepare-segregation.sbatch
+```
+
+Replace `YOUR_PARTITION` with an accessible CPU or dedicated partition. Add `--account` or `--qos` to this preparation submission if your site requires them. If the previous version already created `results/segregation-2024/manifest.json`, skip the download and submit the preparation job alone. The script reuses the packed data. For a fresh download it verifies the source checksum and extracts 303 no-SMC and 300 SMC trajectories. It then orders coordinates by replication fraction on disk. Preparation uses eight CPUs by default, adjustable with `sbatch --cpus-per-task`. It does not calculate any contact maps.
+
+After the preparation job completes, rerun the notebook cell and select **Full matched ensemble** and **Slurm GPU**. Pick a stage from 5% through 95% or press **Compare stage**. Only that stage window’s coordinates enter the distance calculation. Each completed job releases its GPU.
+
+The CUDA extra installs CuPy on Linux x86-64 and needs a compatible driver on the batch node. If the Jupyter server uses a separate environment, make the locked environment’s `.venv/share/jupyter` visible via the server’s `JUPYTER_PATH`, or install anywidget in that server environment. [CuPy installation guide](https://docs.cupy.dev/en/stable/install.html) · [Plotly widget documentation](https://plotly.com/python/figurewidget/)
 
 ## What is measured
 
