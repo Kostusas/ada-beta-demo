@@ -1,10 +1,16 @@
 # Chromosome contacts on ADA
 
-Open the [demo notebook](notebooks/demo.ipynb) in your running [Open OnDemand JupyterLab session](https://ondemand.labs.vu.nl) and choose **Run All Cells**. The experiment uses the CPUs and memory of that session. Julia and the scientific Python kernel are assumed to be available.
+Open the [demo notebook](notebooks/demo.ipynb) in your running [Open OnDemand JupyterLab session](https://ondemand.labs.vu.nl) and choose **Run All Cells**. The experiments use the session’s CPUs, memory and optional CUDA GPU. Julia and the scientific Python kernel are assumed to be available.
 
 ![Condensin pair-contact frequencies and predicted three-point contacts at bait 200](examples/contacts.png)
 
-## Present the experiment
+## Compare sister chromosomes
+
+Select **Sister segregation** to compare matched trajectories from Harju, van Teeseling and Broedersz’s 2024 study. Pick a replication stage, vary the contact radius, and click an outlier to rotate its sister chromosomes in 3-D. Pin it and click another point to compare their segregation histories. The repository includes eight archived trajectories sampled at three stages. On ADA you can stage the 603-trajectory ensemble, prepare it with up to 60 CPU workers and keep inter-sister distances resident on an H200 for live queries. [H200 setup and presentation guide](docs/segregation.md) · [Paper](https://doi.org/10.1038/s41467-024-49039-w)
+
+![A selected SMC trajectory at half replication and its two sister chromosomes in 3-D](examples/segregation.png)
+
+## Present the bait-200 experiment
 
 1. **Chromosome map.** Start at bait 200 and move it to 100. The left panel shows measured pair-contact frequencies from condensin simulations. The right panel predicts where two other chromosome regions meet the bait. Switch between 40, 20 and 10 kb spacing to see how much detail finer sampling reveals.
 2. **Live experiment.** Choose **Measure this node**. Leave **Resolution ladder** selected and choose the CPU ceiling and measurement window. The plan shows the number of configurations, largest tensor and minimum compute time before you press **Run experiment**. With eight available CPUs and a ten-second window, the ladder takes **at least two minutes** of timed computation across twelve configurations.
@@ -31,7 +37,7 @@ cd ada-beta-demo
 Open `notebooks/demo.ipynb` in the JupyterLab file browser. The tested runtime is Julia 1.12.6 on PATH, with Python 3.11–3.14, NumPy, Matplotlib, ipywidgets and psutil. To reproduce the Python environment on another installation, the repository includes a uv lockfile. If your existing kernel needs those packages, register the locked kernel once from the clone:
 
 ```sh
-uv sync --locked --extra lab
+uv sync --locked --extra lab --extra segregation
 .venv/bin/python -m ipykernel install --user --name ada-contacts --display-name "ADA chromosome contacts"
 ```
 
@@ -45,4 +51,6 @@ The notebook also discovers 1,010- and 2,020-locus contact maps prepared from th
 
 The predictor and input map come from Harju, Messelink and Broedersz, *Multicontact statistics distinguish models of chromosome organization* (2025). The 101-locus stage compares all entries to the original serial implementation. At 404 loci every configuration checks the published-resolution bait-200 plane. Full-cube hashes check agreement across thread counts for each standard resolution. The larger inputs use a sampled serial check. [Paper](https://doi.org/10.1103/PhysRevE.111.014403) · [Methods and file formats](docs/method.md) · [Upstream repository](https://github.com/PLSysGitHub/chromosomal_multi_contact_data)
 
-MIT. The original predictor and contact data retain the authors’ notice. [Project license](LICENSE) · [Upstream license](src/upstream/LICENSE)
+The demo code is MIT licensed. The segregation preview uses the archive’s CC BY 4.0 license. [Preview provenance and data license](data/segregation-preview/README.md)
+
+The original predictor and contact data retain the authors’ notice. [Project license](LICENSE) · [Upstream license](src/upstream/LICENSE)

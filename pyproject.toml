@@ -6,6 +6,8 @@ requires-python = ">=3.11,<3.15"
 dependencies = []
 
 [project.optional-dependencies]
+cuda12 = ["cupy-cuda12x[ctk]>=14,<15; sys_platform == 'linux' and platform_machine == 'x86_64'"]
+segregation = ["h5py>=3.12,<4", "anywidget>=0.9,<1", "plotly>=6,<7", "numpy>=2,<3", "ipywidgets>=8.1,<9", "psutil>=6,<8"]
 lab = ["psutil>=6,<8", "jupyterlab>=4.4,<5", "ipywidgets>=8.1,<9", "matplotlib>=3.9,<4", "numpy>=2,<3"]
 extract = ["h5py>=3.12,<4", "numpy>=2,<3", "scipy>=1.15,<2"]
 

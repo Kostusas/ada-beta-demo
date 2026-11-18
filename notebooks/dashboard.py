@@ -75,10 +75,32 @@ class Dashboard:
                                 layout=w.Layout(width="215px"))
         self.inspect.on_click(self.inspect_result)
         results_page = w.VBox([self.saved,self.scaling,self.table,self.inspect,self.replay,self.replay_view])
-        self.tabs = w.Tab(children=[map_page,compute_page,results_page],
-                          titles=["Chromosome map","Live experiment","Results & replay"])
+        self.segregation = None
+        self.segregation_page = w.VBox()
+        self.tabs = w.Tab(children=[map_page,compute_page,results_page,self.segregation_page],
+                          titles=["Bait-200 map","Live experiment","Results & replay","Sister segregation"])
+        self.tabs.observe(self.open_segregation, names="selected_index")
         self.view = w.VBox([self.header,self.tabs],layout=w.Layout(width="100%"))
         self.refresh_sessions()
+
+    def open_segregation(self, *_):
+        if self.tabs.selected_index != 3 or self.segregation is not None:
+            return
+        try:
+            from segregation.view import SegregationView
+            self.segregation = SegregationView()
+            self.segregation_page.children = [self.segregation.view]
+        except ImportError as exc:
+            self.segregation_page.children = [w.HTML(panel(
+                f'<h3>Segregation viewer dependencies</h3><p>{escape(str(exc))}</p>'
+                '<p>Install the segregation extra in this kernel environment with '
+                '<code>uv sync --locked --extra lab --extra segregation</code> from the clone, '
+                'select that kernel and rerun the notebook.</p>'))]
+
+    def close(self):
+        self.cancel()
+        if self.segregation is not None:
+            self.segregation.cancel()
 
     def change_map(self, *_):
         n = self.resolution.value

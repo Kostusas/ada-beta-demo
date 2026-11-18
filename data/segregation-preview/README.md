@@ -1,0 +1,5 @@
+# Archived chromosome coordinates
+
+These coordinate excerpts are adapted from Janni Harju’s *Simulation data for Loop-extruders alter bacterial chromosome topology to direct entropic forces for segregation*, Zenodo record 10877077 (2024), under **CC BY 4.0**. The selected HDF5 members come from two matched tethered dynamic conditions. The manifest records their original paths. The data license applies to these excerpts. [Dataset and attribution](https://doi.org/10.5281/zenodo.10877077) · [License](https://creativecommons.org/licenses/by/4.0/) · [Harju, van Teeseling & Broedersz, 2024](https://doi.org/10.1038/s41467-024-49039-w)
+
+The preview uses four files per condition. For each trajectory we selected the three frames closest to each of 25%, 50% and 75% replication, kept 808 coordinate triplets, fork indices, original group identifier and block, and repacked them as NumPy arrays. This is a convenience sample for demonstrating the interface. Use the full matched ensemble for scientific comparisons.

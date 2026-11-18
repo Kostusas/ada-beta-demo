@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "doi": "10.5281/zenodo.10877077",
+  "preview": true,
+  "tracks": [
+    {
+      "member": "Dynamic/No_smcs/N_404_colRate_0.03_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_232.h5",
+      "condition": "No SMC",
+      "file": "track-0000.npz",
+      "frames": 9
+    },
+    {
+      "member": "Dynamic/No_smcs/N_404_colRate_0.03_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_263.h5",
+      "condition": "No SMC",
+      "file": "track-0001.npz",
+      "frames": 9
+    },
+    {
+      "member": "Dynamic/No_smcs/N_404_colRate_0.03_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_32.h5",
+      "condition": "No SMC",
+      "file": "track-0002.npz",
+      "frames": 9
+    },
+    {
+      "member": "Dynamic/No_smcs/N_404_colRate_0.03_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_63.h5",
+      "condition": "No SMC",
+      "file": "track-0003.npz",
+      "frames": 9
+    },
+    {
+      "member": "Dynamic/Nontopological_smcs/stallFork_0.0_N_404_colRate_0.03_sep_101_parSstrength_4040.0_lifetime_40400_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_232.h5",
+      "condition": "SMC",
+      "file": "track-0004.npz",
+      "frames": 9
+    },
+    {
+      "member": "Dynamic/Nontopological_smcs/stallFork_0.0_N_404_colRate_0.03_sep_101_parSstrength_4040.0_lifetime_40400_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_263.h5",
+      "condition": "SMC",
+      "file": "track-0005.npz",
+      "frames": 9
+    },
+    {
+      "member": "Dynamic/Nontopological_smcs/stallFork_0.0_N_404_colRate_0.03_sep_101_parSstrength_4040.0_lifetime_40400_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_32.h5",
+      "condition": "SMC",
+      "file": "track-0006.npz",
+      "frames": 9
+    },
+    {
+      "member": "Dynamic/Nontopological_smcs/stallFork_0.0_N_404_colRate_0.03_sep_101_parSstrength_4040.0_lifetime_40400_rateFork_0.07440000000000001_stoch_0.05_sps_2500_trunc_1.5_pullF_2.0/mif05_63.h5",
+      "condition": "SMC",
+      "file": "track-0007.npz",
+      "frames": 9
+    }
+  ]
+}
