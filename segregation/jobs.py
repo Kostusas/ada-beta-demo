@@ -4,6 +4,8 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -17,13 +19,26 @@ RESULTS = ROOT / "results"
 CACHE = RESULTS / "segregation-queries"
 
 
-def scheduler(command, *, check=True, env=None):
-    return subprocess.run(command, capture_output=True, text=True, timeout=30, check=check, env=env)
+def scheduler(command, *, submit_host="", env=None):
+    executable = command[0]
+    if submit_host:
+        command = ["ssh", "-nT", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+                   "-o", "ConnectTimeout=8", "--", submit_host, shlex.join(command)]
+    try:
+        call = subprocess.run(command, capture_output=True, text=True, timeout=30, env=env)
+    except FileNotFoundError as exc:
+        if submit_host:
+            raise RuntimeError("The notebook needs an SSH client to use submit_host.") from exc
+        raise RuntimeError(
+            f"{executable} is unavailable in this environment. Set submit_host in results/slurm.toml "
+            "to a Slurm-enabled ADA host, or run the check from an ADA host shell."
+        ) from exc
+    if submit_host and call.returncode == 255:
+        raise RuntimeError(f"SSH to {submit_host} failed: {call.stderr.strip()}")
+    return call
 
 
-def submit(folder, index, stage, radius, backend, output, attempt):
-    config = RESULTS / "slurm.toml"
-    options = tomllib.loads(config.read_text()) if config.is_file() else {}
+def submit(folder, index, stage, radius, backend, output, attempt, options):
     args = ["sbatch", "--parsable", "--job-name=segregation", "--nodes=1", "--ntasks=1",
             f"--chdir={ROOT}", f"--output={attempt / 'slurm.log'}",
             f"--cpus-per-task={options.get('cpus', 4)}", f"--mem={options.get('memory', '8G')}",
@@ -41,13 +56,14 @@ def submit(folder, index, stage, radius, backend, output, attempt):
     env = {k: v for k, v in os.environ.items() if not k.startswith("SBATCH_") and k not in
            {"CUDA_VISIBLE_DEVICES", "SLURM_EXPORT_ENV", "SLURM_MEM_PER_CPU", "SLURM_MEM_PER_NODE",
             "SLURM_CPUS_PER_TASK", "SLURM_NTASKS", "SLURM_HINT"}}
-    call = scheduler(args, check=False, env=env)
+    call = scheduler(args, submit_host=options.get("submit_host", ""), env=env)
     if call.returncode:
         raise RuntimeError(f"Slurm rejected the request: {call.stderr.strip()}")
-    job = call.stdout.strip().split(";")[0]
-    if not job.isdecimal():
+    # Some SSH login environments print a greeting before sbatch's parsable line.
+    job_ids = re.findall(r"^([0-9]+)(?:;[^\s;]+)?$", call.stdout, re.MULTILINE)
+    if len(job_ids) != 1:
         raise RuntimeError(f"Unexpected sbatch response: {call.stdout.strip()}")
-    return job
+    return job_ids[0]
 
 
 def request(folder, index, index_id, stage, radius, backend, stop, status, *, cache=CACHE):
@@ -76,14 +92,20 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
             compute(folder, index, stage, radius, backend, output, stop,
                     lambda label, done, total: status(f"{label} · {done:,}/{total:,}"))
             return load_result(output), "Computed in the preview session"
+        config = RESULTS / "slurm.toml"
+        options = tomllib.loads(config.read_text()) if config.is_file() else {}
+        submit_host = options.get("submit_host", "")
         if active.exists():
-            attempt_name, job = json.loads(active.read_text())
+            attempt_name, job, *route = json.loads(active.read_text())
+            # A job started directly on ADA can be resumed from its Jupyter container.
+            if route and route[0]:
+                submit_host = route[0]
             attempt = directory / attempt_name
         else:
             attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=directory))
-            status("Submitting to Slurm")
-            job = submit(folder, index, stage, radius, backend, output, attempt)
-            write_text(active, json.dumps([attempt.name, job]))
+            status(f"Submitting to Slurm via {submit_host}" if submit_host else "Submitting to Slurm")
+            job = submit(folder, index, stage, radius, backend, output, attempt, options)
+            write_text(active, json.dumps([attempt.name, job, submit_host]))
         scheduler_state = "Submitted"
         next_check = time.monotonic() + 5
         missing = False
@@ -92,7 +114,7 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
                 active.unlink(missing_ok=True)
                 return load_result(output), f"Slurm job {job}"
             if stop.is_set():
-                cancel = scheduler(["scancel", job], check=False)
+                cancel = scheduler(["scancel", job], submit_host=submit_host)
                 if cancel.returncode and not output.exists():
                     raise RuntimeError(f"Could not stop job {job}: {cancel.stderr.strip()}")
                 active.unlink(missing_ok=True)
@@ -102,15 +124,16 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
                 raise RuntimeError(f"Job {job}: {(attempt / 'error').read_text()} · {attempt / 'slurm.log'}")
             now = time.monotonic()
             if now >= next_check:
-                state = scheduler(["squeue", "-h", "-j", job, "-o", "%T"], check=False)
-                gone = (not state.returncode and not state.stdout.strip()) or "invalid job id" in state.stderr.lower()
+                state = scheduler(["squeue", "-h", "-j", job, "-o", "%i %T"], submit_host=submit_host)
+                row = re.search(rf"^{re.escape(job)}\s+(\S+)$", state.stdout, re.MULTILINE)
+                gone = (not state.returncode and row is None) or "invalid job id" in state.stderr.lower()
                 if state.returncode and not gone:
                     raise RuntimeError(f"Could not check job {job}: {state.stderr.strip()}. Compare again to reconnect.")
                 if gone and missing:
                     active.unlink(missing_ok=True)
                     raise RuntimeError(f"Job {job} ended without a result. See {attempt / 'slurm.log'}")
                 missing = gone
-                scheduler_state = state.stdout.strip() or "Checking for output"
+                scheduler_state = row[1] if row else "Checking for output"
                 next_check = now + 8
             progress_file = attempt / "progress"
             detail = progress_file.read_text() if progress_file.exists() else scheduler_state

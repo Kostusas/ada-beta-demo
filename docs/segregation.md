@@ -17,6 +17,24 @@ cp -n slurm.example.toml results/slurm.toml
 
 Edit **`results/slurm.toml`** and set `partition` to the name of your dedicated GPU partition. The default request is one GPU, four CPU cores, 8 GiB of host memory and ten minutes. On a partition with multiple GPU models, set `gres` to the H200 resource string advertised on ADA. Set `account` or `qos` if your partition requires it. The notebook reads the file for each new submission. The H200 handles the pair calculations in batches. The CPU and memory settings are for the separate Slurm job. [Slurm GPU resources](https://slurm.schedmd.com/gres.html)
 
+### When the Jupyter container has no Slurm commands
+
+The container can use SSH to submit, monitor and cancel jobs through an ADA interactive host. Run this in the Jupyter terminal, using an SSH destination authorized for your account:
+
+```sh
+ssh -o BatchMode=yes -o ConnectTimeout=8 inter01.labs.vu.nl 'command -v sbatch && command -v squeue && command -v scancel'
+```
+
+Three paths confirm noninteractive access from that terminal. If host-key verification fails on first use, connect interactively and verify the displayed fingerprint with ADA before accepting it. An authenticated host shell also lets you run the tiny terminal check directly from the shared clone. The notebook needs noninteractive SSH access for its own submissions. [ADA login guide](https://rdm.vu.nl/tools/ada/login.html)
+
+Add the following top-level setting to `results/slurm.toml` alongside your partition and GPU request. Restart the notebook kernel after updating the clone. The clone, virtual environment and results must be visible at the same absolute paths on the submission and batch hosts.
+
+```toml
+submit_host = "inter01.labs.vu.nl"
+```
+
+For the one-time archive preparation, run the `sbatch` command below directly in the interactive host shell.
+
 ### Try a real submission before downloading the archive
 
 1. In JupyterLab select **ADA chromosome contacts**, restart the kernel, and run all cells in `notebooks/demo.ipynb`. Open **Sister segregation** and expand **Ensemble and compute settings**.

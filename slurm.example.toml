@@ -6,3 +6,5 @@ memory = "8G"
 time = "00:10:00"
 # account = ""
 # qos = ""
+# For a Jupyter container with SSH and no Slurm clients:
+# submit_host = "inter01.labs.vu.nl"

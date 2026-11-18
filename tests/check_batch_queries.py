@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
@@ -30,7 +31,8 @@ class Scheduler:
         self.jobs = []
         self.reject = self.hold = False
 
-    def __call__(self, cmd, *, check=True, env=None):
+    def __call__(self, cmd, *, submit_host="", env=None):
+        assert submit_host == "test-host"
         command = cmd[0]
         if command == "sbatch":
             if self.reject:
@@ -44,10 +46,14 @@ class Scheduler:
                 proc = subprocess.Popen(["/bin/sh", *cmd[script_index:]], cwd=ROOT,
                                         env={**env, "SLURM_JOB_ID": job, "SLURM_CPUS_PER_TASK": "2"})
             self.jobs.append((job, proc))
-            return subprocess.CompletedProcess(cmd, 0, job + ";ada\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "Welcome to the cluster\n" + job + ";ada\n", "")
         if command == "scancel":
             assert cmd[1] == self.jobs[-1][0]
             return subprocess.CompletedProcess(cmd, 0, "", "")
+        if command == "squeue" and self.hold:
+            job = self.jobs[-1][0]
+            assert cmd == ["squeue", "-h", "-j", job, "-o", "%i %T"]
+            return subprocess.CompletedProcess(cmd, 0, f"Welcome to the cluster\n{job} PENDING\n", "")
         raise AssertionError(f"Unexpected command: {command}")
 
 
@@ -55,12 +61,30 @@ def run():
     stop = threading.Event()
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
+        # OpenSSH sends a single shell command to the host. Preserve every argument
+        # exactly, including shared paths with spaces and apostrophes.
+        args = ["sbatch", "--chdir=/shared/a user's project", "worker.sbatch"]
+        with patch.object(subprocess, "run") as invoke:
+            invoke.return_value.returncode = 0
+            jobs.scheduler(args, submit_host="test-host")
+            ssh = invoke.call_args.args[0]
+            assert ssh[0] == "ssh" and "BatchMode=yes" in ssh and "StrictHostKeyChecking=yes" in ssh
+            assert ssh[-2] == "test-host" and shlex.split(ssh[-1]) == args
+            jobs.scheduler(args)
+            assert invoke.call_args.args[0] == args
+            invoke.side_effect = FileNotFoundError()
+            try:
+                jobs.scheduler(args)
+            except RuntimeError as exc:
+                assert "submit_host" in str(exc)
+            else:
+                raise AssertionError("Missing local Slurm client must give setup instructions")
         index = root / "index"
         digest = build_index(PREVIEW, index, 2)
         assert digest == build_index(PREVIEW, index, 2)
         coords = Coordinates(PREVIEW, 1, stop, None, index=index)
         assert isinstance(coords.pos, np.memmap) and not coords.pos.flags.writeable
-        (root / "slurm.toml").write_text('partition="test"\ncpus=2\n')
+        (root / "slurm.toml").write_text('partition="test"\ncpus=2\nsubmit_host="test-host"\n')
         sim = Scheduler()
 
         def request(radius, **kwargs):
@@ -95,11 +119,13 @@ def run():
             cancel = threading.Event()
 
             def cancel_submitted(message):
-                if message.startswith("Job "):
+                if message.endswith("PENDING"):
                     cancel.set()
 
             try:
-                request(2.25, stop=cancel, status=cancel_submitted)
+                with patch.object(jobs, "time") as clock:
+                    clock.monotonic.side_effect = [0, 10]
+                    request(2.25, stop=cancel, status=cancel_submitted)
             except InterruptedError:
                 pass
             else:
