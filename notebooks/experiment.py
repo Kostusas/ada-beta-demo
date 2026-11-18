@@ -158,7 +158,7 @@ async def experiment(levels, ceiling, seconds, update, completed, output=None):
                     hashes.add(path)
                 bait = 1 + round(1990/source["spacing"])
                 run["maps"][n] = dict(sha256=source["sha"], spacing_kb=source["spacing"], bait=bait)
-                args = [julia, "--startup-file=no", f"--threads={threads},0", str(ROOT/"src/live.jl"),
+                args = [julia, "--startup-file=no", f"--threads={threads}", str(ROOT/"src/live.jl"),
                         str(path), str(n), str(source["stride"]), str(seconds), str(directory),
                         str(ROOT/"examples/published-slice/bait.f64"), str(bait)]
                 row = await worker(args, n, threads, update, stream, origin,index,len(plan))

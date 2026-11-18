@@ -88,7 +88,7 @@ def main():
     fields = ["mode", "threads", "trial", "seconds", "cpu_seconds", "peak_rss_bytes", "digest"]
     summary = []
     for mode, threads in configs:
-        command = [julia, "--startup-file=no", f"--threads={threads},0", str(ROOT / "src/worker.jl"),
+        command = [julia, "--startup-file=no", f"--threads={threads}", str(ROOT / "src/worker.jl"),
                    mode, str(path), str(n), str(stride), str(bait), str(args.repeats), str(dest)]
         result = subprocess.run(command, check=True, stdout=subprocess.PIPE, text=True)
         if mode == "preview":
