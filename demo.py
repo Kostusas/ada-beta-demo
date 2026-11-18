@@ -15,6 +15,8 @@ import sys
 import tempfile
 import tomllib
 
+from session_resources import cpu_capacity
+
 ROOT = Path(__file__).resolve().parent
 MAP = ROOT / "data/condensin_hic_contact_r_5.txt"
 MAP_SHA = "81f921d346eef394910f168ce3e551fc017275044d2755dccf13feb7450729bd"
@@ -38,7 +40,7 @@ def main():
         parser.error("--map applies to highmem only")
     if args.repeats < 1:
         parser.error("--repeats must be positive")
-    allocation = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
+    allocation = cpu_capacity()
     limit = args.max_threads if args.max_threads is not None else min(allocation, 2 if profile == "smoke" else 32)
     if limit < 1 or limit > allocation:
         parser.error(f"choose 1 through {allocation} threads")
@@ -48,8 +50,8 @@ def main():
     path = MAP
     n, stride, spacing = (101, 4, 40) if profile == "smoke" else (404, 1, 10)
     if profile == "highmem":
-        if not (args.map and os.environ.get("SLURM_JOB_ID")):
-            parser.error("highmem requires a Slurm allocation and --map from scripts/extract.py")
+        if not args.map:
+            parser.error("highmem requires --map from scripts/extract.py")
         path = args.map.resolve()
         provenance = json.loads(path.with_suffix(".json").read_text())
         spacing = provenance["stride"]
@@ -57,9 +59,6 @@ def main():
             parser.error("expected a complete 2 or 4 kb condensin map at radius 5")
         n = 4040 // spacing
         expected_hash = provenance["sha256"]
-        mem_mb = int(os.environ.get("SLURM_MEM_PER_NODE", 0))
-        if mem_mb < (96 if n == 2020 else 16) * 1024:
-            parser.error("request at least 96G (2 kb) or 16G (4 kb) with --mem")
     else:
         expected_hash = MAP_SHA
     if file_hash(path) != expected_hash:

@@ -16,11 +16,15 @@ function predict_plane!(plane, contacts, i)
     return plane
 end
 
-function threaded(contacts)
+function threaded!(out, contacts)
     n = size(contacts, 1)
-    out = Array{Float64}(undef, n, n, n)
     Threads.@threads for i in 1:n
         predict_plane!(view(out, :, :, i), contacts, i)
     end
     return out
+end
+
+function threaded(contacts)
+    n = size(contacts, 1)
+    return threaded!(Array{Float64}(undef, n, n, n), contacts)
 end

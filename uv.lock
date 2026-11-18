@@ -27,6 +27,7 @@ lab = [
     { name = "matplotlib" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "psutil" },
 ]
 
 [package.metadata]
@@ -37,6 +38,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'lab'", specifier = ">=3.9,<4" },
     { name = "numpy", marker = "extra == 'extract'", specifier = ">=2,<3" },
     { name = "numpy", marker = "extra == 'lab'", specifier = ">=2,<3" },
+    { name = "psutil", marker = "extra == 'lab'", specifier = ">=6,<8" },
     { name = "scipy", marker = "extra == 'extract'", specifier = ">=1.15,<2" },
 ]
 provides-extras = ["lab", "extract"]

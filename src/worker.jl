@@ -21,6 +21,17 @@ end
 # POSIX clock() gives process CPU time in millionths of a second on Linux/macOS.
 process_cpu() = ccall(:clock, Clong, ()) / 1e6
 
+function check_grid(out, p)
+    ids = unique(round.(Int, range(1, size(p,1), length=16)))
+    reference = loop_extr(p[ids, ids])
+    for a in eachindex(ids), b in eachindex(ids), c in eachindex(ids)
+        # Include only triples eligible at both resolutions.
+        if minimum((d_periodic(a,b,16), d_periodic(b,c,16), d_periodic(a,c,16))) > 1
+            out[ids[a], ids[b], ids[c]] == reference[a,b,c] || error("Grid mismatch")
+        end
+    end
+end
+
 function trial(predict, p, bait, plane_path, full_hash)
     GC.gc()
     cpu_start = process_cpu()
@@ -36,16 +47,7 @@ function trial(predict, p, bait, plane_path, full_hash)
     # Hash a zero-copy byte view. At high resolution compare a sparse grid to
     # the serial oracle without allocating or reading a second full tensor.
     digest = full_hash ? bytes2hex(sha256(reinterpret(UInt8, vec(out)))) : ""
-    if !full_hash
-        ids = unique(round.(Int, range(1, size(p,1), length=16)))
-        reference = loop_extr(p[ids, ids])
-        for a in eachindex(ids), b in eachindex(ids), c in eachindex(ids)
-            # Include only triples eligible at both resolutions.
-            if minimum((d_periodic(a,b,16), d_periodic(b,c,16), d_periodic(a,c,16))) > 1
-                out[ids[a], ids[b], ids[c]] == reference[a,b,c] || error("Grid mismatch")
-            end
-        end
-    end
+    full_hash || check_grid(out, p)
     return (; seconds, cpu_seconds, peak_rss_bytes=Int(rss), digest)
 end
 
@@ -74,4 +76,6 @@ function main(args)
     TOML.print(stdout, metrics)
 end
 
-main(ARGS)
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(ARGS)
+end
