@@ -1,6 +1,6 @@
 # Chromosome contacts on ADA
 
-Open the [demo notebook](notebooks/demo.ipynb) in your running [Open OnDemand JupyterLab session](https://ondemand.labs.vu.nl) and choose **Run All Cells**. The bait-200 map opens inside the session. New segregation calculations can run as short Slurm jobs on a separate GPU node. Julia and the scientific Python kernel are assumed to be available.
+Open the [demo notebook](notebooks/demo.ipynb) in your running [Open OnDemand JupyterLab session](https://ondemand.labs.vu.nl) and choose **Run All Cells**. The bait-200 map opens inside the session. New segregation calculations can run as short Slurm jobs on a separate GPU node. If CPU batch nodes lack Julia, run `bash scripts/stage-julia.sh` once in the shared ADA clone to make the tested runtime available.
 
 ![Condensin pair-contact frequencies and predicted three-point contacts at bait 200](examples/contacts.png)
 

@@ -49,7 +49,13 @@ If your site disables per-user extensions, the app administrator can install the
 
 ### Compare four session CPUs with a 60-CPU batch allocation
 
-**Live experiment → Run on → Slurm CPU allocation** uses the same direct or SSH submission route as the segregation tab. Select **404 loci**, **CPU ceiling 60**, and **Run experiment**. Each thread count runs sequentially in one CPU-only job. Worker telemetry, the node name and the allocation size stream back to Jupyter. The measurements persist under **Results & replay**. The Julia executable must be available on the batch node. Set the optional `julia` field in `results/slurm.toml` to a shared executable path if needed.
+**Live experiment → Run on → Slurm CPU allocation** uses the same direct or SSH submission route as the segregation tab. Select **404 loci**, **CPU ceiling 60**, and **Run experiment**. Each thread count runs sequentially in one CPU-only job. Worker telemetry, the node name and the allocation size stream back to Jupyter. The measurements persist under **Results & replay**.
+
+If the worker reports Julia missing on a batch node, run the following once from the shared clone in the ADA terminal. It downloads the official Linux x86-64 Julia 1.12.6 archive, verifies its published SHA-256 digest, and unpacks it into `results/runtime/`. A batch worker automatically finds it there. An explicit `julia` setting in `results/slurm.toml` takes precedence and must point to a working batch-node executable. [Official Julia binary installations](https://julialang.org/downloads/platform/)
+
+```sh
+bash scripts/stage-julia.sh
+```
 
 The header describes the Jupyter allocation. The `cpus` setting in `results/slurm.toml` controls segregation requests, including the eight-trajectory GPU smoke test. The Julia benchmark requests the CPU ceiling chosen in the notebook. Its default maximum is 60. The example config exposes optional `benchmark_cpus`, `benchmark_time` and `benchmark_memory` settings.
 
@@ -87,10 +93,12 @@ The CUDA extra installs CuPy on Linux x86-64 and needs a compatible driver on th
 
 ## What is measured
 
+The H200 query streams up to 64 frames at a time from the memory-mapped stage index. The worker reduces the inter-sister distances into contact counts before starting the next batch. One full batch of 32-bit distances is about 40 MiB (64 × 404 × 404 × 4 bytes), so the calculation can process hundreds of millions of pairs using a modest working set. **Peak worker RSS** measures the worker process's host memory. **CuPy pool reserved at finish** counts bytes retained by the CuPy allocator at completion and excludes some GPU allocations, including the CUDA context. The browser timer includes job launch and rendering, while **Analysis time** covers the worker's stage comparison.
+
 - **Stage.** With 404 genomic loci and zero-based fork endpoints `lo, hi`, the archive’s replication-stage coordinate is `1 − (hi − lo)/404`. Queries include frames within four percentage points of the chosen stage. The full ensemble supports 5% through 95% in five-point increments.
 - **Horizontal axis.** Use the authors’ absolute segregated-fraction formula on raw coordinates. For replicated loci strictly outside the fork interval, count sister A loci below the cell midpoint and sister B loci above it. Subtract the number of replicated loci, take the absolute value, and divide by that number. The plotted point is the mean over that trajectory’s included frames.
 - **Vertical axis.** Our additional observable is the fraction of eligible inter-sister locus pairs closer than the selected 3-D Euclidean radius (simulation monomer lengths). Both loci must have replicated. Each eligible locus on A is compared with every eligible locus on B, including its homolog. Each trajectory contributes one point. Its initial 3-D frame is the one nearest the requested stage.
-- **Difference map.** At each locus pair, divide contact counts by the number of eligible frames separately for each condition. Subtract the no-SMC frequency from the SMC frequency. Empty support stays blank. Display pixels average supported differences over 4 × 4 locus tiles. The map pools frames and can weight a trajectory with a longer dwell time more heavily. The scatter averages within each trajectory.
+- **Difference map.** At each locus pair, divide contact counts by the number of eligible frames separately for each condition. Subtract the no-SMC frequency from the SMC frequency. Display tiles average the supported differences over 4 × 4 locus pairs in percentage points. Dark gaps lack comparable observations. White marks zero. The default symmetric color range uses the 95th percentile of absolute tile means for the current query. Colors saturate beyond that range and hover preserves the actual value. When that percentile is zero, the full range is used. **Full range** includes the extremes. Either setting reads the saved comparison. The map pools frames and can weight a trajectory with a longer dwell time more heavily. The scatter averages within each trajectory.
 - **Geometry.** The viewer uses the archive’s original locus ordering and long axis, with the authors’ conversion of 0.129 µm per simulation length. Distances and stage comparisons run on the compute node. The browser receives aggregate plots and the selected conformation. These are archived polymer trajectories analyzed live.
 
 [Harju, van Teeseling & Broedersz, Nature Communications (2024)](https://doi.org/10.1038/s41467-024-49039-w) · [Coordinate archive](https://doi.org/10.5281/zenodo.10877077) · [Authors’ analysis at the inspected revision](https://github.com/PLSysGitHub/loop-extrusion_with_replication_analysis/tree/bf35fbb9ae2304af15081bf97afbacb2272f90b4)

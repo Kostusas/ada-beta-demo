@@ -126,9 +126,15 @@ async def worker(command, n, threads, update, stream, origin, index, count):
 
 
 async def experiment(levels, ceiling, seconds, update, completed, output=None, *, directory=None):
-    julia = shutil.which(os.getenv("JULIA", "julia"))
+    configured = os.getenv("JULIA")
+    if configured:
+        julia = shutil.which(configured)
+        if not julia:
+            raise RuntimeError(f"Configured Julia executable {configured!r} is unavailable on {socket.gethostname()}. Check JULIA or the julia setting in results/slurm.toml.")
+    else:
+        julia = shutil.which(str(ROOT / "results/runtime/julia-1.12.6/bin/julia")) or shutil.which("julia")
     if not julia:
-        raise RuntimeError(f"Julia is missing on {socket.gethostname()}. Set JULIA to its executable or configure julia in results/slurm.toml for batch jobs.")
+        raise RuntimeError(f"Julia is missing on {socket.gethostname()}. Run 'bash scripts/stage-julia.sh' once from the shared ADA clone, then retry. A site installation can also be selected with julia in results/slurm.toml.")
     if not 1 <= ceiling <= cpu_capacity() or seconds <= 0:
         raise ValueError("Invalid CPU ceiling or measurement duration")
     maps = inputs()

@@ -151,8 +151,9 @@ class SegregationView:
             data=[
                 go.Heatmap(
                     colorscale="RdBu_r",
-                    zmid=0,
-                    colorbar=dict(title="Δ frequency"),
+                    zauto=False,
+                    colorbar=dict(title="Δ (pp)"),
+                    hovertemplate="Sister A bin %{x} · Sister B bin %{y}<br>SMC − no SMC: %{z:+.4g} pp<extra></extra>",
                     hoverongaps=False,
                 )
             ]
@@ -164,6 +165,10 @@ class SegregationView:
         )
         self.map.update_xaxes(title="Locus on sister A (10 kb bins)")
         self.map.update_yaxes(title="Locus on sister B")
+        self.map_scale = w.Dropdown(description="Color range", options=[
+            ("95th percentile of |Δ|", "p95"), ("Full range", "full")])
+        self.map_scale.observe(self.scale_map, names="value")
+        self.map_key = w.HTML()
         boxes = [
             w.VBox([fig], layout=w.Layout(flex="1 1 390px", min_width="0"))
             for fig in (self.scatter, self.scene)
@@ -171,7 +176,7 @@ class SegregationView:
         self.pair = w.Box(
             boxes, layout=w.Layout(display="flex", flex_flow="row wrap", width="100%")
         )
-        for chart in (self.scatter, self.scene):
+        for chart in (self.scatter, self.scene, self.history, self.map):
             chart.layout.autosize = True
 
         def row(children):
@@ -192,9 +197,13 @@ class SegregationView:
             titles=["Ensemble and compute settings"],
             selected_index=None if len(options) == 1 else 0,
         )
+        detail_plots = w.Box([
+            w.VBox([self.history], layout=w.Layout(flex="1 1 390px", min_width="0")),
+            w.VBox([self.map, self.map_scale, self.map_key], layout=w.Layout(flex="1 1 390px", min_width="0")),
+        ], layout=w.Layout(display="flex", flex_flow="row wrap", width="100%"))
         self.results_view = w.VBox([
             self.metrics, self.pair, row([self.pick, self.frame, self.pin]),
-            self.source, self.history, self.map,
+            self.source, detail_plots,
         ], layout=w.Layout(display="none"))
         self.view = w.VBox(
             [
@@ -274,6 +283,7 @@ class SegregationView:
             trace.y = []
             trace.z = []
         self.map.data[0].z = []
+        self.map_key.value = ""
         with self.history.batch_update():
             for trace in self.history.data:
                 trace.x = trace.y = []
@@ -369,10 +379,11 @@ class SegregationView:
         np.divide(np.nansum(tiled, axis=(1, 3)), support, out=coarse, where=support > 0)
         with self.map.batch_update():
             self.map.layout.meta = revision
-            self.map.data[0].z = coarse.T
+            self.map.data[0].z = 100 * coarse.T  # probability difference in percentage points
             self.map.data[0].x = self.map.data[0].y = np.arange(101) * 4 + 1.5
+        self.scale_map()
         device = f"{escape(result['device'])} on {escape(result['node'])}"
-        gpu = f" · {ram(result['cuda_pool'])} CUDA pool at finish" if result["cuda_pool"] else ""
+        gpu = f" · {ram(result['cuda_pool'])} CuPy pool reserved at finish" if result["cuda_pool"] else ""
         self.metrics.value = panel(
             f"<h3>{device}</h3>" + cards([
                 ("Trajectories", f"{len(self.points):,}"), ("Eligible pairs", f"{result['pairs']:,}"),
@@ -380,12 +391,36 @@ class SegregationView:
                 ("Throughput", f"{result['pairs'] / result['seconds'] / 1e6:,.1f} M pairs/s"),
             ]) + f'<div class="adaMuted">{result["frames"]:,} frames · stage {result["stage"]:.0%} ± 4 percentage points · '
             f'radius {result["radius"]:.2f} monomers · {result["busy"]:.1f} busy CPU equivalents '
-            f'of {result["cpus"]} configured · {ram(result["peak_rss"])} peak RAM{gpu}</div>')
+            f'of {result["cpus"]} configured · {ram(result["peak_rss"])} peak worker RSS{gpu}</div>')
         self.pick.options = [(self.name(i), i) for i in range(len(self.points))]
         self.pick.value = next(
             (i for i, p in enumerate(self.points) if p["track"] == previous), 0
         )
         self.select()
+
+    def scale_map(self, *_):
+        trace = self.map.data[0]
+        data = np.asarray(trace.z, dtype=float)
+        values = data[np.isfinite(data)]
+        magnitude = np.abs(values)
+        peak = float(magnitude.max(initial=0))
+        limit = peak
+        if peak and self.map_scale.value == "p95":
+            limit = float(np.percentile(magnitude, 95)) or peak
+        with self.map.batch_update():
+            trace.zmin, trace.zmax = -(limit or 1), limit or 1
+            trace.showscale = bool(peak)
+        if not values.size:
+            detail = "No tiles have observations in both conditions."
+        elif not peak:
+            detail = "All supported tiles have a mean difference of zero."
+        else:
+            saturated = np.count_nonzero(magnitude > limit)
+            detail = f"Color limits ±{limit:.3g} pp. Tile means span {values.min():+.3g} to {values.max():+.3g} pp."
+            if saturated:
+                detail += f" {saturated:,} tiles exceed the color limits. Hover for their values."
+        self.map_key.value = (detail + " Differences are in percentage points (pp). White marks zero. Dark gaps have no comparable locus pairs. "
+                              "Red indicates higher contact frequency with SMC, blue indicates lower.")
 
     def name(self, i):
         point = self.points[i]
