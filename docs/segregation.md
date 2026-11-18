@@ -35,6 +35,28 @@ submit_host = "inter01.labs.vu.nl"
 
 For the one-time archive preparation, run the `sbatch` command below directly in the interactive host shell.
 
+### Repair a JupyterLab frontend that reports “Failed to load model class 'AnyModel'”
+
+The kernel can import anywidget while the separate JupyterLab server cannot serve its browser extension. In the Apptainer terminal, from the shared clone, run:
+
+```sh
+.venv/bin/python scripts/enable_widget_frontend.py
+```
+
+This exposes the packaged browser assets through your Jupyter user data directory. Save your notebook, stop the **OnDemand JupyterLab app**, launch it again, and reload the browser. Select the registered kernel and run all cells. **Eight archived trajectories → Session preview** exercises the charts and linked 3-D viewer entirely within the session.
+
+If your site disables per-user extensions, the app administrator can install the matching anywidget frontend in the **JupyterLab server image**. [Jupyter widget installation with separate environments](https://ipywidgets.readthedocs.io/en/stable/user_install.html)
+
+### Compare four session CPUs with a 60-CPU batch allocation
+
+**Live experiment → Run on → Slurm CPU allocation** uses the same direct or SSH submission route as the segregation tab. Select **404 loci**, **CPU ceiling 60**, and **Run experiment**. Each thread count runs sequentially in one CPU-only job. Worker telemetry, the node name and the allocation size stream back to Jupyter. The measurements persist under **Results & replay**. The Julia executable must be available on the batch node. Set the optional `julia` field in `results/slurm.toml` to a shared executable path if needed.
+
+The header describes the Jupyter allocation. The `cpus` setting in `results/slurm.toml` controls segregation requests, including the eight-trajectory GPU smoke test. The Julia benchmark requests the CPU ceiling chosen in the notebook. Its default maximum is 60. The example config exposes optional `benchmark_cpus`, `benchmark_time` and `benchmark_memory` settings.
+
+### Provide a native Slurm client in a site-managed image
+
+The SSH submission route works with the existing image. For native submission, build a new image with ADA-compatible Slurm client utilities and their libraries/plugins. At app launch provide the site's Slurm configuration or configless discovery, network access to the controller, and the site's authentication service. With MUNGE this normally includes access to the host's MUNGE socket as the session user. Keep the daemon's private key on the host. Validate submission, status and cancellation from the running container. [Slurm authentication](https://slurm.schedmd.com/authentication.html) · [Configless Slurm](https://slurm.schedmd.com/configless_slurm.html)
+
 ### Try a real submission before downloading the archive
 
 1. In JupyterLab select **ADA chromosome contacts**, restart the kernel, and run all cells in `notebooks/demo.ipynb`. Open **Sister segregation** and expand **Ensemble and compute settings**.

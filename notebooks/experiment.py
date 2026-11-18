@@ -125,16 +125,17 @@ async def worker(command, n, threads, update, stream, origin, index, count):
         await asyncio.gather(reader, return_exceptions=True)
 
 
-async def experiment(levels, ceiling, seconds, update, completed, output=None):
+async def experiment(levels, ceiling, seconds, update, completed, output=None, *, directory=None):
     julia = shutil.which(os.getenv("JULIA", "julia"))
     if not julia:
-        raise RuntimeError("Julia is missing from this Jupyter kernel's PATH.")
+        raise RuntimeError(f"Julia is missing on {socket.gethostname()}. Set JULIA to its executable or configure julia in results/slurm.toml for batch jobs.")
     if not 1 <= ceiling <= cpu_capacity() or seconds <= 0:
         raise ValueError("Invalid CPU ceiling or measurement duration")
     maps = inputs()
     parent = output or ROOT / "results"
     parent.mkdir(parents=True, exist_ok=True)
-    directory = Path(tempfile.mkdtemp(dir=parent, prefix="session-"))
+    if directory is None:
+        directory = Path(tempfile.mkdtemp(dir=parent, prefix="session-"))
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     run = dict(started=started, node=socket.gethostname(), cpus=cpu_capacity(),
                kernel_pid=os.getpid(), window_s=seconds, rows=[], status="running", maps={})

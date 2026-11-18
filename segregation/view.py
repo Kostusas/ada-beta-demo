@@ -13,7 +13,8 @@ import plotly.graph_objects as go
 
 from .engine import FULL, PREVIEW, Coordinates, N, WINDOW
 from .index import build_index, index_path
-from .jobs import request
+from .jobs import request, settings as slurm_settings
+from notebooks.panels import cards, panel, ram
 from .timing import PlotTiming
 
 COLORS = ("#63d9cb", "#ffab75")
@@ -191,22 +192,20 @@ class SegregationView:
             titles=["Ensemble and compute settings"],
             selected_index=None if len(options) == 1 else 0,
         )
+        self.results_view = w.VBox([
+            self.metrics, self.pair, row([self.pick, self.frame, self.pin]),
+            self.source, self.history, self.map,
+        ], layout=w.Layout(display="none"))
         self.view = w.VBox(
             [
-                w.HTML(
-                    "<h2>Sister chromosome segregation</h2>Choose a replication stage to compare matched tethered simulations with and without non-topological SMC. Click any point to inspect its sister chromosomes."
-                ),
+                w.HTML(panel("<h2>Sister chromosome segregation</h2>"
+                             '<div class="adaMuted">Compare cells with and without non-topological SMC at the same replication stage. '
+                             "Select a trajectory to inspect its chromosomes in 3-D.</div>")),
                 settings,
-                row([self.compare_button, self.stop]),
+                row([self.stage, self.radius, self.compare_button, self.stop]),
                 self.progress,
                 self.timing,
-                row([self.stage, self.radius]),
-                self.metrics,
-                self.pair,
-                row([self.pick, self.frame, self.pin]),
-                self.source,
-                self.history,
-                self.map,
+                self.results_view,
             ]
         )
         self.view.add_class("ada-segregation-view")
@@ -228,6 +227,9 @@ class SegregationView:
         try:
             folder = Path(self.dataset.value)
             preview = folder == PREVIEW
+            meta = json.loads((folder / "manifest.json").read_text())
+            frames = sum(t["frames"] for t in meta["tracks"])
+            self.dataset_summary = f"{len(meta['tracks']):,} trajectories · {frames:,} archived frames"
             self.clear()
             self.engine = None
             choices = [("Slurm GPU", "CUDA"), ("Slurm CPU", "CPU")]
@@ -238,9 +240,6 @@ class SegregationView:
             stages = (25, 50, 75) if preview else range(5, 100, 5)
             self.stage.options = [(f"{s}%", s) for s in stages]
             self.stage.value = 50
-            meta = json.loads((folder / "manifest.json").read_text())
-            frames = sum(t["frames"] for t in meta["tracks"])
-            self.plan.value = f"<b>{len(meta['tracks']):,} trajectories · {frames:,} archived frames</b>"
             self.change_backend()
         finally:
             self.configuring = False
@@ -248,11 +247,18 @@ class SegregationView:
     def change_backend(self, *_):
         self.clear()
         if self.backend.value == "local":
+            self.plan.value = f"<b>{self.dataset_summary}</b> · in-session preview"
             self.progress.value = "Select a stage or press Compare stage to run the tiny preview."
         else:
+            opt = slurm_settings()
+            device = f" · {escape(opt.get('gres', 'gpu:1'))}" if self.backend.value == "CUDA" else ""
+            route = escape(opt.get("submit_host") or "local Slurm client")
+            self.plan.value = (f"<b>{self.dataset_summary}</b> · batch request {opt.get('cpus', 4)} CPUs{device} · "
+                               f"{escape(opt.get('partition') or 'default partition')} via {route}")
             self.progress.value = "Select a stage or press Compare stage. Each new query submits one batch job."
 
     def clear(self):
+        self.results_view.layout.display = "none"
         self.timing.revision = ""
         self.points = []
         self.pinned_track = None
@@ -321,6 +327,7 @@ class SegregationView:
                 self.progress.value = f"{escape(latest)} · {time.perf_counter() - started:.1f} s"
                 await asyncio.wait({work}, timeout=0.2)
             self.engine, result, source = await work
+            self.results_view.layout.display = ""
             revision = str(time.monotonic_ns())
             self.present(result, revision)
             self.progress.value = (
@@ -364,17 +371,16 @@ class SegregationView:
             self.map.layout.meta = revision
             self.map.data[0].z = coarse.T
             self.map.data[0].x = self.map.data[0].y = np.arange(101) * 4 + 1.5
-        self.metrics.value = (
-            f"<b>{len(self.points):,} trajectories</b> · {result['frames']:,} frames · "
-            f"{result['pairs']:,} eligible locus pairs · <b>{result['seconds'] * 1000:,.0f} ms</b> analysis · "
-            f"{result['pairs'] / result['seconds'] / 1e6:,.1f} M eligible pairs/s<br>"
-            f"{escape(result['device'])} on {escape(result['node'])} · {result['busy']:.1f} busy CPU equivalents "
-            f"({result['cpus']} configured) · "
-            f"{result['peak_rss'] / 2**20:,.0f} MiB peak process RAM · "
-            f"stage {result['stage']:.0%} ± 4 percentage points · radius {result['radius']:.2f} monomers"
-        )
-        if result["cuda_pool"]:
-            self.metrics.value += f" · {result['cuda_pool'] / 2**20:,.0f} MiB CUDA pool reserved at finish"
+        device = f"{escape(result['device'])} on {escape(result['node'])}"
+        gpu = f" · {ram(result['cuda_pool'])} CUDA pool at finish" if result["cuda_pool"] else ""
+        self.metrics.value = panel(
+            f"<h3>{device}</h3>" + cards([
+                ("Trajectories", f"{len(self.points):,}"), ("Eligible pairs", f"{result['pairs']:,}"),
+                ("Analysis time", f"{result['seconds'] * 1000:,.0f} ms"),
+                ("Throughput", f"{result['pairs'] / result['seconds'] / 1e6:,.1f} M pairs/s"),
+            ]) + f'<div class="adaMuted">{result["frames"]:,} frames · stage {result["stage"]:.0%} ± 4 percentage points · '
+            f'radius {result["radius"]:.2f} monomers · {result["busy"]:.1f} busy CPU equivalents '
+            f'of {result["cpus"]} configured · {ram(result["peak_rss"])} peak RAM{gpu}</div>')
         self.pick.options = [(self.name(i), i) for i in range(len(self.points))]
         self.pick.value = next(
             (i for i, p in enumerate(self.points) if p["track"] == previous), 0

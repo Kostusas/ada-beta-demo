@@ -31,28 +31,32 @@ def scheduler(command, *, submit_host="", env=None):
         if submit_host:
             raise RuntimeError("The notebook needs an SSH client to use submit_host.") from exc
         raise RuntimeError(
-            f"{executable} is unavailable in this environment. Set submit_host in results/slurm.toml "
-            "to a Slurm-enabled ADA host, or run the check from an ADA host shell."
+            f"{executable} is unavailable here. In {RESULTS / 'slurm.toml'}, set "
+            'submit_host = "inter01.labs.vu.nl" to use ADA over SSH, then retry.'
         ) from exc
     if submit_host and call.returncode == 255:
         raise RuntimeError(f"SSH to {submit_host} failed: {call.stderr.strip()}")
     return call
 
 
-def submit(folder, index, stage, radius, backend, output, attempt, options):
-    args = ["sbatch", "--parsable", "--job-name=segregation", "--nodes=1", "--ntasks=1",
-            f"--chdir={ROOT}", f"--output={attempt / 'slurm.log'}",
-            f"--cpus-per-task={options.get('cpus', 4)}", f"--mem={options.get('memory', '8G')}",
+def settings():
+    config = RESULTS / "slurm.toml"
+    return tomllib.loads(config.read_text()) if config.is_file() else {}
+
+
+def submit_python(name, options, directory, script, arguments, *, cpus, gpu=False):
+    args = ["sbatch", "--parsable", f"--job-name={name}", "--nodes=1", "--ntasks=1",
+            f"--chdir={ROOT}", f"--output={directory / 'slurm.log'}",
+            f"--cpus-per-task={cpus}", f"--mem={options.get('memory', '8G')}",
             f"--time={options.get('time', '00:10:00')}"]
     for key in ("partition", "account", "qos"):
         if options.get(key):
             args.append(f"--{key}={options[key]}")
-    if backend == "CUDA":
+    if gpu:
         args.append(f"--gres={options.get('gres', 'gpu:1')}")
     shared_python = ROOT / ".venv/bin/python"
     python = str(shared_python) if shared_python.exists() else sys.executable
-    args.extend([str(ROOT / "scripts/segregation-query.sbatch"), python, str(folder),
-                 str(index), str(stage), str(radius), backend, str(output), str(attempt)])
+    args.extend([str(ROOT / "scripts" / script), python, *map(str, arguments)])
     # Use the batch allocation's resources and GPU assignment. Retain site config and PATH.
     env = {k: v for k, v in os.environ.items() if not k.startswith("SBATCH_") and k not in
            {"CUDA_VISIBLE_DEVICES", "SLURM_EXPORT_ENV", "SLURM_MEM_PER_CPU", "SLURM_MEM_PER_NODE",
@@ -81,8 +85,7 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
     if stage not in range(5, 100, 5) or not (1 <= radius <= 4 and radius * 4 == int(radius * 4)):
         raise ValueError("Choose a stage and contact radius supported by the dashboard.")
     directory = cache / f"v{QUERY_VERSION}" / index_id / f"{backend}-{stage}-{int(radius * 4)}"
-    config = RESULTS / "slurm.toml"
-    options = tomllib.loads(config.read_text()) if backend != "local" and config.is_file() else {}
+    options = settings() if backend != "local" else {}
     if backend == "CUDA":
         # A performance measurement belongs to the GPU allocation that produced it.
         allocation = json.dumps([options.get("partition", ""), options.get("gres", "gpu:1")])
@@ -123,7 +126,9 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
         else:
             attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=directory))
             status(f"Submitting to Slurm via {submit_host}" if submit_host else "Submitting to Slurm")
-            job = submit(folder, index, stage, radius, backend, output, attempt, options)
+            job = submit_python("segregation", options, attempt, "segregation-query.sbatch",
+                                [folder, index, stage, radius, backend, output, attempt],
+                                cpus=options.get("cpus", 4), gpu=backend == "CUDA")
             write_text(active, json.dumps([attempt.name, job, submit_host]))
         scheduler_state = "Submitted"
         next_check = time.monotonic() + 5

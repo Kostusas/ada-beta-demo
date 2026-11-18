@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from demo import ROOT
+from notebooks.batch_scaling import batch_experiment
+from segregation.jobs import settings
 from experiment import configurations, cpu_capacity, experiment, inputs
 from figures import heatmaps, predict_slice, scaling_figure
 from panels import cards, comparison, panel, ram, telemetry
@@ -26,7 +28,7 @@ class Dashboard:
         self.last_pid = None
         self.saved_plane = None
         self.header = w.HTML(panel(
-            '<h2>Chromosome contact lab</h2><div class="adaMuted">Open OnDemand · '
+            '<h2>Chromosome contact lab</h2><div class="adaMuted">Jupyter interface · '
             f'{escape(socket.gethostname())} · {self.capacity} session CPUs · Python kernel PID {os.getpid()}</div>'))
         self.resolution = w.Dropdown(options=[(f"{n:,} loci · {m['spacing']} kb",n) for n,m in self.maps.items()],
                                      value=404, description="Resolution")
@@ -37,7 +39,7 @@ class Dashboard:
         self.resolution.observe(self.change_map, names="value")
         self.bait.observe(self.draw_map, names="value")
         self.change_map()
-        advance = w.Button(description="Measure this node", icon="tachometer", button_style="primary",
+        advance = w.Button(description="Measure CPU scaling", icon="tachometer", button_style="primary",
                            layout=w.Layout(width="180px"))
         advance.on_click(lambda _: setattr(self.tabs, "selected_index", 1))
         map_page = w.VBox([self.science, w.HBox([self.resolution, self.bait], layout=w.Layout(flex_flow="row wrap")),
@@ -47,6 +49,8 @@ class Dashboard:
                                 layout=w.Layout(width="340px"))
         self.ceiling = w.Dropdown(description="CPU ceiling", options=configurations(self.capacity),
                                   value=max(c for c in configurations(self.capacity) if c <= 8))
+        self.location = w.Dropdown(description="Run on", options=[("Notebook session", "local"), ("Slurm CPU allocation", "slurm")],
+                                   value="slurm" if (ROOT / "results/slurm.toml").is_file() else "local")
         self.duration = w.Dropdown(description="Time / config", options=[("4 seconds",4),("10 seconds",10),("20 seconds",20)],
                                    value=10)
         self.start = w.Button(description="Run experiment", icon="play", button_style="success",
@@ -57,10 +61,11 @@ class Dashboard:
         self.plan = w.HTML()
         for widget in (self.level, self.ceiling, self.duration):
             widget.observe(self.describe_plan, names="value")
-        self.describe_plan()
+        self.location.observe(self.choose_location, names="value")
+        self.choose_location()
         self.live = w.HTML(panel('<h3>Worker monitor</h3><p>Start the experiment to sample the Julia process and its threads.</p>'))
         self.status = w.Label()
-        controls = w.Box([self.level, self.ceiling, self.duration], layout=w.Layout(display="flex",flex_flow="row wrap"))
+        controls = w.Box([self.location, self.level, self.ceiling, self.duration], layout=w.Layout(display="flex",flex_flow="row wrap"))
         compute_page = w.VBox([controls, self.plan, w.HBox([self.start,self.stop]), self.status,self.live])
         self.saved = w.Dropdown(description="Session", options=[], layout=w.Layout(width="min(600px, 95%)"))
         self.saved.observe(self.load_session, names="value")
@@ -143,12 +148,21 @@ class Dashboard:
         if fig is not None:
             self.show_figure(self.scaling, fig)
 
+    def choose_location(self, *_):
+        remote = self.location.value == "slurm"
+        limit = max(1, int(settings().get("benchmark_cpus", 60))) if remote else self.capacity
+        steps = configurations(limit)
+        self.ceiling.options = steps
+        self.ceiling.value = limit if remote else max(n for n in steps if n <= 8)
+        self.describe_plan()
+
     def describe_plan(self, *_):
         levels = self.level.value
         threads = configurations(self.ceiling.value) if max(levels)<=404 else [self.ceiling.value]
         count = len(levels)*len(threads)
         stages = " → ".join(f"{n:,}" for n in levels)
-        self.plan.value = panel(f'<h3>{stages} loci</h3><div class="adaMuted">Measure the complete triplet cube at '
+        target = "Slurm CPU job" if self.location.value == "slurm" else "Notebook session"
+        self.plan.value = panel(f'<h3>{target} · {stages} loci</h3><div class="adaMuted">Measure the complete triplet cube at '
             + ", ".join(map(str,threads))+' thread(s). Each configuration repeats the prediction for the selected measurement window.</div>'
             +cards([("Largest output",ram(8*max(levels)**3)),("Configurations",str(count)),
                     ("Minimum timed compute",f"{count*self.duration.value} s")])
@@ -168,16 +182,23 @@ class Dashboard:
             self.last_pid = event["pid"]
         if event["sample"]:
             self.history.append((event["elapsed"],event["sample"]))
-        self.status.value = f'{event["elapsed"]:.1f} s elapsed · {event["compute_s"]:.1f} s measured in this configuration'
-        self.live.value = telemetry(event,self.history,self.capacity)
+        target = f'Job {event["job"]} · {event["node"]} · {event["capacity"]} allocated CPUs · ' if "job" in event else ""
+        self.status.value = f'{target}{event["elapsed"]:.1f} s elapsed · {event["compute_s"]:.1f} s measured in this configuration'
+        self.live.value = telemetry(event,self.history,event.get("capacity", self.capacity))
 
     async def run(self):
-        for widget in (self.level,self.ceiling,self.duration,self.start):
+        controls = (self.location,self.level,self.ceiling,self.duration,self.start)
+        for widget in controls:
             widget.disabled = True
         self.stop.disabled = False
         self.live.value = panel('<h3>Starting experiment</h3>')
         try:
-            dest = await experiment(self.level.value,self.ceiling.value,self.duration.value,self.update,self.show_results)
+            args = (self.level.value,self.ceiling.value,self.duration.value,self.update,self.show_results)
+            if self.location.value == "slurm":
+                self.status.value = "Submitting CPU scaling job"
+                dest = await batch_experiment(*args, status=lambda s: setattr(self.status, "value", s))
+            else:
+                dest = await experiment(*args)
             self.status.value = f"Saved to results/{dest.name}"
             self.live.value = panel('<h3>Experiment complete</h3><p>Open Results &amp; replay to compare throughput and inspect recorded worker activity.</p>')
             self.refresh_sessions(dest)
@@ -192,7 +213,7 @@ class Dashboard:
             self.refresh_sessions()
         finally:
             self.stop.disabled = True
-            for widget in (self.level,self.ceiling,self.duration,self.start):
+            for widget in controls:
                 widget.disabled = False
 
     def refresh_sessions(self, selected=None):

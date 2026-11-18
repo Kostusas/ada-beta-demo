@@ -8,3 +8,8 @@ time = "00:10:00"
 # qos = ""
 # For a Jupyter container with SSH and no Slurm clients:
 # submit_host = "inter01.labs.vu.nl"
+# Julia CPU scaling options, independent of the segregation request above.
+# benchmark_cpus = 60
+# benchmark_time = "00:30:00"
+# benchmark_memory = "8G"
+# julia = "/shared/path/to/julia"

@@ -53,7 +53,7 @@ def telemetry(event, history, capacity):
     body = f'<h3>{escape(event["phase"])}</h3><div class="adaMuted">{info} · Julia PID {event["pid"]}</div>'
     if s is None:
         return panel(body + '<p>Reading worker counters…</p>')
-    body += cards([("Busy CPU equivalents", f'{s["cores"]:.1f}'), ("Session CPU use", f'{100*s["cores"]/capacity:.0f}%'),
+    body += cards([("Busy CPU equivalents", f'{s["cores"]:.1f}'), ("Allocation CPU use", f'{100*s["cores"]/capacity:.0f}%'),
                    ("Resident memory", ram(s["rss"])), ("Finished predictions", str(event["passes"]))])
     body += '<div class="adaColumns"><div><b>Worker CPU</b>'
     body += trace(history, "cores", max(capacity, max(v["cores"] for _,v in history)), "#5ce1c0")
