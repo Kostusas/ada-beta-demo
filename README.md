@@ -45,7 +45,7 @@ Select **ADA chromosome contacts** and run the notebook. The standard OnDemand J
 
 ## Go beyond the published resolution
 
-The notebook also discovers 1,010- and 2,020-locus contact maps prepared from the original trajectory coordinates. Their dense predictions occupy 7.68 and 61.41 GiB respectively, plus process overhead. Prepare the desired map in your sufficiently sized session and rerun the notebook cell to expose it in the controls. [High-memory walkthrough](docs/high-memory.md)
+The notebook also discovers 1,010- and 2,020-locus contact maps prepared from the original trajectory coordinates. Their dense predictions occupy 7.68 and 61.41 GiB respectively, plus process overhead. Prepare the desired map once on the cluster, rerun the notebook cell, and choose **Slurm CPU allocation** for the prediction. [High-memory walkthrough](docs/high-memory.md)
 
 ## Scientific source and verification
 
