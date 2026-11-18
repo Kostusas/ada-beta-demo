@@ -1,0 +1,9 @@
+{
+  "revision": "3fb7dea343f8426140f38442c47eba000e80b9f2",
+  "stride": 10,
+  "radius": 5,
+  "frames": 3060,
+  "first_bead": 1,
+  "common_grid_max_count_difference": 1,
+  "sha256": "418dbb67f358eba443db2f1f7e0c1022bdaafddd927d98ca6733449cb9870024"
+}

@@ -1,0 +1,17 @@
+{
+  "profile": "preview",
+  "n": 404,
+  "spacing_kb": 10,
+  "bait": 200,
+  "tensor_bytes": 527514112,
+  "map_sha256": "81f921d346eef394910f168ce3e551fc017275044d2755dccf13feb7450729bd",
+  "byteorder": "little",
+  "started_utc": "2026-11-18T11:16:43.983975+00:00",
+  "platform": "Darwin",
+  "job": "",
+  "partition": "",
+  "allocated_cpus": "",
+  "requested_mem_mb": "",
+  "summary": [],
+  "validation": "slice only"
+}

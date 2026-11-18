@@ -1,0 +1,47 @@
+{
+  "profile": "smoke",
+  "n": 101,
+  "spacing_kb": 40,
+  "bait": 51,
+  "tensor_bytes": 8242408,
+  "map_sha256": "81f921d346eef394910f168ce3e551fc017275044d2755dccf13feb7450729bd",
+  "byteorder": "little",
+  "started_utc": "2026-11-18T11:16:43.983954+00:00",
+  "platform": "Darwin",
+  "job": "",
+  "partition": "",
+  "allocated_cpus": "",
+  "requested_mem_mb": "",
+  "cpu": "Apple M4",
+  "julia": "1.12.6",
+  "summary": [
+    {
+      "mode": "serial",
+      "threads": 1,
+      "median_s": 0.0022690830000000003,
+      "speedup": null,
+      "efficiency": null,
+      "cpu_cores": 1.0016191851560114,
+      "peak_rss_mib": 330.21875
+    },
+    {
+      "mode": "threaded",
+      "threads": 1,
+      "median_s": 0.002024291,
+      "speedup": 1.0,
+      "efficiency": 1.0,
+      "cpu_cores": 0.9954102448709696,
+      "peak_rss_mib": 328.9375
+    },
+    {
+      "mode": "threaded",
+      "threads": 2,
+      "median_s": 0.0011920000000000001,
+      "speedup": 1.6982307046979865,
+      "efficiency": 0.8491153523489933,
+      "cpu_cores": 1.938733320804442,
+      "peak_rss_mib": 332.6875
+    }
+  ],
+  "validation": "full tensor SHA-256 vs original serial"
+}
