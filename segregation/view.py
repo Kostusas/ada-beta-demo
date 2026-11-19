@@ -11,7 +11,8 @@ import ipywidgets as w
 import numpy as np
 import plotly.graph_objects as go
 
-from .engine import FULL, PREVIEW, Coordinates, N, WINDOW
+from demo_storage import full_ensemble, slurm_config
+from .engine import PREVIEW, Coordinates, N, WINDOW
 from .index import build_index, index_path
 from .jobs import request, settings as slurm_settings
 from notebooks.panels import cards, panel, ram
@@ -31,12 +32,23 @@ MICRONS = 0.129
 class SegregationView:
     def __init__(self):
         options = [("Eight archived trajectories", str(PREVIEW))]
-        if (FULL / "manifest.json").is_file():
-            options.append(("Full matched ensemble", str(FULL)))
+        full = full_ensemble()
+        ready = (full / "manifest.json").is_file() and (index_path(full) / "index.json").is_file()
+        if ready:
+            options.append(("Full matched ensemble", str(full)))
+        availability = w.HTML()
+        if not ready:
+            availability.value = (
+                "<b>Full ensemble needs preparation.</b> The bundled preview covers 25%, 50% and 75%. "
+                "For 603 trajectories and stages through 95%, run "
+                "<code>.venv/bin/python -m demo_storage prepare-ada</code> from the shared ADA clone "
+                "and rerun the notebook cell."
+            )
         self.dataset = w.Dropdown(
             options=options, value=options[-1][1], description="Dataset"
         )
         self.backend = w.Dropdown(description="Run on")
+        self.reuse = w.Checkbox(value=False, description="Reuse saved comparisons", indent=False)
         self.compare_button = w.Button(
             description="Compare stage", icon="play", button_style="primary"
         )
@@ -189,13 +201,13 @@ class SegregationView:
             children=[
                 w.VBox(
                     [
-                        row([self.dataset, self.backend]),
+                        row([self.dataset, self.backend, self.reuse]),
                         self.plan,
                     ]
                 )
             ],
             titles=["Ensemble and compute settings"],
-            selected_index=None if len(options) == 1 else 0,
+            selected_index=0,
         )
         detail_plots = w.Box([
             w.VBox([self.history], layout=w.Layout(flex="1 1 390px", min_width="0")),
@@ -210,6 +222,7 @@ class SegregationView:
                 w.HTML(panel("<h2>Sister chromosome segregation</h2>"
                              '<div class="adaMuted">Compare cells with and without non-topological SMC at the same replication stage. '
                              "Select a trajectory to inspect its chromosomes in 3-D.</div>")),
+                *([] if ready else [availability]),
                 settings,
                 row([self.stage, self.radius, self.compare_button, self.stop]),
                 self.progress,
@@ -228,7 +241,7 @@ class SegregationView:
         self.dataset.observe(self.configure_dataset, names="value")
         self.backend.observe(self.change_backend, names="value")
         self.configure_dataset()
-        if self.backend.value == "local":
+        if self.backend.value == "local" and not slurm_config().is_file():
             self.launch()
 
     def configure_dataset(self, *_):
@@ -248,7 +261,7 @@ class SegregationView:
             self.backend.value = choices[0][1]
             stages = (25, 50, 75) if preview else range(5, 100, 5)
             self.stage.options = [(f"{s}%", s) for s in stages]
-            self.stage.value = 50
+            self.stage.value = 50 if preview else 90
             self.change_backend()
         finally:
             self.configuring = False
@@ -264,7 +277,7 @@ class SegregationView:
             route = escape(opt.get("submit_host") or "local Slurm client")
             self.plan.value = (f"<b>{self.dataset_summary}</b> · batch request {opt.get('cpus', 4)} CPUs{device} · "
                                f"{escape(opt.get('partition') or 'default partition')} via {route}")
-            self.progress.value = "Select a stage or press Compare stage. Each new query submits one batch job."
+            self.progress.value = "Select a stage or press Compare stage to compare the trajectories."
 
     def clear(self):
         self.results_view.layout.display = "none"
@@ -305,7 +318,7 @@ class SegregationView:
 
     @property
     def query_controls(self):
-        return (self.dataset, self.backend, self.compare_button, self.stage, self.radius)
+        return (self.dataset, self.backend, self.compare_button, self.stage, self.radius, self.reuse)
 
     def cancel(self):
         self.stop_event.set()
@@ -316,6 +329,7 @@ class SegregationView:
         folder = Path(self.dataset.value)
         index = index_path(folder)
         backend, stage, radius = self.backend.value, self.stage.value, self.radius.value
+        fresh = not self.reuse.value
 
         def status(message):
             nonlocal latest
@@ -325,10 +339,10 @@ class SegregationView:
             if folder == PREVIEW:
                 build_index(folder, index, 2)
             elif not (index / "index.json").is_file():
-                raise ValueError("Prepare the shared stage index with scripts/prepare-segregation.sbatch. See docs/segregation.md.")
+                raise ValueError("Run .venv/bin/python -m demo_storage prepare-ada in the shared ADA clone, then rerun the dashboard cell.")
             coords = Coordinates(folder, 1, self.stop_event, None, index=index)
             result, source = request(folder, index, coords.index_id, stage, radius, backend,
-                                     self.stop_event, status)
+                                     self.stop_event, status, fresh=fresh)
             return coords, result, source
 
         try:

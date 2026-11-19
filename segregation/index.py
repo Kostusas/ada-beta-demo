@@ -11,12 +11,13 @@ from pathlib import Path
 import numpy as np
 
 from session_resources import cpu_capacity
-from .engine import ARRAY_NAMES, FULL, PREVIEW, ROOT, Coordinates, read_index_id
+from demo_storage import full_ensemble
+from .engine import ARRAY_NAMES, PREVIEW, ROOT, Coordinates, read_index_id
 
 
 def index_path(folder):
     if folder == PREVIEW:
-        return ROOT / "results/segregation-preview-index-v1"
+        return ROOT / "inputs/segregation-preview-index-v1"
     return folder / "stage-index-v1"
 
 
@@ -47,8 +48,12 @@ def build_index(folder, destination, workers):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("folder", type=Path, default=FULL, nargs="?")
+    parser.add_argument("folder", type=Path, default=full_ensemble(), nargs="?")
+    parser.add_argument("--check", action="store_true", help="open an existing stage index and report its size")
     args = parser.parse_args()
     folder = args.folder.resolve()
-    build_index(folder, index_path(folder), min(60, cpu_capacity()))
-    print(f"Ready: {index_path(folder)}")
+    index = index_path(folder)
+    if not args.check:
+        build_index(folder, index, min(60, cpu_capacity()))
+    coords = Coordinates(folder, 1, threading.Event(), None, index=index)
+    print(f"Ready: {len(coords.tracks):,} trajectories, {len(coords.fraction):,} archived frames · {index}")

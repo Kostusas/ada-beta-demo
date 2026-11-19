@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from segregation import jobs
+from demo_storage import clear_comparisons
 from segregation.engine import Coordinates, Ensemble, PREVIEW
 from segregation.index import build_index, index_path
 from segregation.query import load_result
@@ -96,7 +97,7 @@ def run():
             return jobs.request(PREVIEW, index, digest, 50, radius, "CPU",
                                 kwargs.get("stop", stop), kwargs.get("status", quiet), cache=root / "cache")
 
-        with patch.object(jobs, "scheduler", sim), patch.object(jobs, "RESULTS", root), \
+        with patch.object(jobs, "scheduler", sim), patch.object(jobs, "slurm_config", return_value=root / "slurm.toml"), \
              patch.dict(os.environ, {"SBATCH_QOS": "ood", "CUDA_VISIBLE_DEVICES": ""}):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 replies = list(pool.map(request, [2, 2]))
@@ -183,6 +184,9 @@ def run():
             assert updated["job"] != h200["job"] and gpu()[0]["job"] == updated["job"]
             gpu_type("a30")
             assert gpu()[0]["job"] == a30["job"]
+            assert clear_comparisons(root / "cache") == (5, 0)
+            again, source = gpu()
+            assert again["job"] != a30["job"] and source == f"Slurm job {again['job']}"
             for _, proc in sim.jobs[3:]:
                 assert proc.wait(timeout=10) == 0
     print("Verified stage-only batch execution, reference parity, deduplication, replay, rejection, cancellation, retry and reconnect.")

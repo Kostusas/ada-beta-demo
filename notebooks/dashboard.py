@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from demo import ROOT
+from demo_storage import slurm_config
 from notebooks.batch_scaling import batch_experiment
 from segregation.jobs import settings
 from experiment import configurations, cpu_capacity, experiment, inputs
@@ -52,7 +53,7 @@ class Dashboard:
         self.run_mode = w.Dropdown(description="Benchmark", options=[("Selected threads only", (self.ceiling.value,))],
                                    layout=w.Layout(width="320px"))
         self.location = w.Dropdown(description="Run on", options=[("Notebook session", "local"), ("Slurm CPU allocation", "slurm")],
-                                   value="slurm" if (ROOT / "results/slurm.toml").is_file() else "local")
+                                   value="slurm" if slurm_config().is_file() else "local")
         self.duration = w.Dropdown(description="Time / config", options=[("4 seconds",4),("10 seconds",10),("20 seconds",20)],
                                    value=10)
         self.start = w.Button(description="Run experiment", icon="play", button_style="success",

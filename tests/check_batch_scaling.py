@@ -34,7 +34,8 @@ async def check():
                     env={**env, "SLURM_CPUS_PER_TASK": "2", "SLURM_JOB_ID": "501"}))
             return subprocess.CompletedProcess(command, 0, "501\n", "")
         (parent / "slurm.toml").write_text('partition="test"\nsubmit_host="test-host"\n')
-        with patch.object(jobs, "RESULTS", parent), patch.object(jobs, "scheduler", scheduler):
+        with (patch.object(jobs, "RESULTS", parent), patch.object(jobs, "scheduler", scheduler),
+              patch.object(jobs, "slurm_config", return_value=parent / "slurm.toml")):
             run = await asyncio.wait_for(batch_experiment([101], 2, 1, events.append, snapshots.append,
                                                           statuses.append, thread_counts=[2, 1]), 90)
         assert processes[0].wait(timeout=5) == 0
@@ -58,7 +59,8 @@ async def check():
                 return subprocess.CompletedProcess(command, 0, "502\n", "")
             cancelled.append(command)
             return subprocess.CompletedProcess(command, 0, "", "")
-        with patch.object(jobs, "RESULTS", parent), patch.object(jobs, "scheduler", delayed_submit):
+        with (patch.object(jobs, "RESULTS", parent), patch.object(jobs, "scheduler", delayed_submit),
+              patch.object(jobs, "slurm_config", return_value=parent / "slurm.toml")):
             task = asyncio.create_task(batch_experiment([101], 2, 1, events.append, snapshots.append, statuses.append))
             await asyncio.wait_for(submitting.wait(), 5)
             task.cancel()

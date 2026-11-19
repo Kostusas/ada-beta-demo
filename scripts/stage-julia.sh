@@ -8,7 +8,7 @@ if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
 fi
 cd "$(dirname "$0")/.."
 version=1.12.6
-runtime_dir=results/runtime
+runtime_dir=runtime
 dest="$runtime_dir/julia-$version"
 if [[ -x "$dest/bin/julia" ]]; then
     exec "$dest/bin/julia" --version

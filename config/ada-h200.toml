@@ -1,0 +1,5 @@
+# Dedicated ADA partition used for the chromosome demo.
+submit_host = "inter01.labs.vu.nl"
+partition = "itvo-test"
+gres = "gpu:nvidia_h200_nvl:1"
+benchmark_cpus = 60

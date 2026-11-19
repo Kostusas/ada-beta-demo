@@ -10,13 +10,13 @@ from pathlib import Path
 import numpy as np
 import psutil
 
+from demo_storage import ROOT, full_ensemble
 from session_resources import cpu_capacity
 
 N = 404
 WINDOW = 0.04
-ROOT = Path(__file__).resolve().parents[1]
 PREVIEW = ROOT / "data/segregation-preview"
-FULL = ROOT / "results/segregation-2024"
+FULL = full_ensemble()
 
 
 def ranges(start, stop, chunk):

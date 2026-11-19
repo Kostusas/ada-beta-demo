@@ -22,7 +22,9 @@ def configurations(ceiling):
 
 def inputs():
     maps = {n: dict(path=MAP, stride=404//n, spacing=4040//n, sha=MAP_SHA) for n in (101, 202, 404)}
-    for path in sorted((ROOT / "results").glob("map-*kb-*/contacts.txt")):
+    paths = [path for parent in ("results", "inputs")
+             for path in sorted((ROOT / parent).glob("map-*kb-*/contacts.txt"))]
+    for path in paths:
         manifest = path.with_suffix(".json")
         if not manifest.is_file():
             continue
@@ -130,14 +132,18 @@ async def worker(command, n, threads, update, stream, origin, index, count):
 
 async def experiment(levels, ceiling, seconds, update, completed, output=None, *, directory=None, thread_counts=None):
     configured = os.getenv("JULIA")
+    staged = ROOT / "runtime/julia-1.12.6/bin/julia"
+    legacy = ROOT / "results" / staged.relative_to(ROOT)
     if configured:
         julia = shutil.which(configured)
+        if not julia and Path(configured).resolve() == legacy:
+            julia = shutil.which(str(staged))
         if not julia:
-            raise RuntimeError(f"Configured Julia executable {configured!r} is unavailable on {socket.gethostname()}. Check JULIA or the julia setting in results/slurm.toml.")
+            raise RuntimeError(f"Configured Julia executable {configured!r} is unavailable on {socket.gethostname()}. Check JULIA or the julia setting in slurm.toml.")
     else:
-        julia = shutil.which(str(ROOT / "results/runtime/julia-1.12.6/bin/julia")) or shutil.which("julia")
+        julia = shutil.which(str(staged)) or shutil.which(str(legacy)) or shutil.which("julia")
     if not julia:
-        raise RuntimeError(f"Julia is missing on {socket.gethostname()}. Run 'bash scripts/stage-julia.sh' once from the shared ADA clone, then retry. A site installation can also be selected with julia in results/slurm.toml.")
+        raise RuntimeError(f"Julia is missing on {socket.gethostname()}. Run 'bash scripts/stage-julia.sh' once from the shared ADA clone, then retry. A site installation can also be selected with julia in slurm.toml.")
     if not 1 <= ceiling <= cpu_capacity() or seconds <= 0:
         raise ValueError("Invalid CPU ceiling or measurement duration")
     if thread_counts is not None and (not thread_counts or len(set(thread_counts)) != len(thread_counts)

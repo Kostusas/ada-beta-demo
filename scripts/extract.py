@@ -30,7 +30,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path)
     parser.add_argument("--stride", type=int, choices=(2, 4, 10), required=True)
-    parser.add_argument("--output", type=Path, default=ROOT / "results")
+    parser.add_argument("--output", type=Path, default=ROOT / "inputs")
     args = parser.parse_args()
     n = 4040 // args.stride
     counts = np.zeros((n, n), dtype=np.uint32)

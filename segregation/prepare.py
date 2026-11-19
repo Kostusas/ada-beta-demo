@@ -84,7 +84,7 @@ def prepare(source, dest, workers, preview=False):
     if source.is_file():
         with source.open("rb") as file:
             if hashlib.file_digest(file, "md5").hexdigest() != MD5:
-                raise ValueError("Zenodo archive checksum mismatch")
+                raise ValueError(f"Zenodo archive checksum mismatch. Move {source} aside and rerun prepare-ada to download it again.")
         with zipfile.ZipFile(source) as archive:
             members = archive.namelist()
     else:
@@ -127,7 +127,7 @@ def prepare(source, dest, workers, preview=False):
 if __name__ == "__main__":
     arg = argparse.ArgumentParser(description=__doc__)
     arg.add_argument("archive", type=Path)
-    arg.add_argument("--output", type=Path, default=ROOT / "results/segregation-2024")
+    arg.add_argument("--output", type=Path, default=ROOT / "inputs/segregation-2024")
     arg.add_argument("--workers", type=int, default=min(60, cpu_capacity()))
     args = arg.parse_args()
     if not 1 <= args.workers <= cpu_capacity():

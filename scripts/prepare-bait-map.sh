@@ -2,8 +2,8 @@
 # Run on the Slurm submission host, from the same shared clone as the notebook.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-mkdir -p results
-exec 9>results/bait-map-prep.lock
+mkdir -p inputs results
+exec 9>inputs/.bait-map-prep.lock
 flock 9
 
 if .venv/bin/python -c 'from notebooks.experiment import inputs; raise SystemExit(2020 not in inputs())'; then
@@ -15,7 +15,7 @@ revision=3fb7dea343f8426140f38442c47eba000e80b9f2
 folder=Extract_triplets/Example_Brandao
 source_dir="trajectories/$folder"
 if [[ ! -d "$source_dir" ]]; then
-    checkout=results/bait-map-source
+    checkout=inputs/bait-map-source
     if [[ ! -d "$checkout/.git" ]]; then
         git clone --depth 1 --filter=blob:none --no-checkout \
             https://github.com/PLSysGitHub/chromosomal_multi_contact_data.git "$checkout"

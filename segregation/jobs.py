@@ -13,6 +13,7 @@ import tempfile
 import time
 import tomllib
 
+from demo_storage import slurm_config
 from .engine import PREVIEW, ROOT, check_stop
 from .query import QUERY_VERSION, compute, load_result, write_text
 
@@ -31,7 +32,7 @@ def scheduler(command, *, submit_host="", env=None):
         if submit_host:
             raise RuntimeError("The notebook needs an SSH client to use submit_host.") from exc
         raise RuntimeError(
-            f"{executable} is unavailable here. In {RESULTS / 'slurm.toml'}, set "
+            f"{executable} is unavailable here. In {slurm_config()}, set "
             'submit_host = "inter01.labs.vu.nl" to use ADA over SSH, then retry.'
         ) from exc
     if submit_host and call.returncode == 255:
@@ -40,7 +41,7 @@ def scheduler(command, *, submit_host="", env=None):
 
 
 def settings():
-    config = RESULTS / "slurm.toml"
+    config = slurm_config()
     return tomllib.loads(config.read_text()) if config.is_file() else {}
 
 

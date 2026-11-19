@@ -17,7 +17,8 @@ async def check():
         root = Path(tmp)
         with (patch.object(view, "index_path", return_value=root / "index"),
               patch.object(view, "request", partial(view.request, cache=root / "cache")),
-              patch.object(view, "FULL", root / "full")):
+              patch.object(view, "slurm_config", return_value=root / "slurm.toml"),
+              patch.object(view, "full_ensemble", return_value=root / "full")):
             widget = view.SegregationView()
             for stage in (50, 75):
                 widget.stage.value = stage
@@ -39,6 +40,23 @@ async def check():
                 trace.z = data
                 widget.scale_map()
                 assert not trace.showscale
+        # A prepared installation selects the late-stage GPU run without submitting on open.
+        full = root / "staged"
+        full.mkdir()
+        (full / "manifest.json").write_bytes((view.PREVIEW / "manifest.json").read_bytes())
+        with (patch.object(view, "full_ensemble", return_value=full),
+              patch.object(view, "index_path", return_value=root / "index"),
+              patch.object(view, "request", side_effect=ValueError("test submission")) as submit):
+            widget = view.SegregationView()
+            assert widget.dataset.value == str(full) and widget.backend.value == "CUDA"
+            assert widget.stage.value == 90 and widget.task is None
+            assert [value for label, value in widget.stage.options] == list(range(5, 100, 5))
+            for reuse in (False, True):
+                widget.reuse.value = reuse
+                widget.compare_button.click()
+                await widget.task
+                assert submit.call_args.args[3] == 90
+                assert submit.call_args.kwargs["fresh"] == (not reuse)
 
 
 if __name__ == "__main__":

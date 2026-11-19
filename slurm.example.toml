@@ -1,4 +1,4 @@
-# Copy to results/slurm.toml. Use the partition and GPU resource name listed on your cluster.
+# Copy to slurm.toml in the clone. Use the partition and GPU resource name listed on your cluster.
 partition = ""
 gres = "gpu:1"
 cpus = 4
