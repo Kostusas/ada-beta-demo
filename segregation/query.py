@@ -1,6 +1,7 @@
 """Compute one stage and atomically save its map, scatter points and measurements."""
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,7 @@ def compute(folder, index, stage, radius, backend, output, stop, progress):
         peak_rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024),
         cuda_pool=engine.cp.get_default_memory_pool().total_bytes() if engine.cp else 0,
         index_id=engine.index_id, version=QUERY_VERSION,
+        measured_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
     for point in result["points"]:
         point["frames"] = point["frames"].tolist()

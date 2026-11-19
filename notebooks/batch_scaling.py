@@ -21,7 +21,7 @@ async def run_worker(args):
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     try:
         await experiment(args.levels, args.cpus, args.seconds, lambda _: None, lambda _: None,
-                         directory=args.directory, thread_counts=args.threads)
+                         directory=args.directory, thread_counts=args.threads, batch=True)
     except Exception as exc:
         write_text(args.directory / "error.txt", str(exc))
         raise

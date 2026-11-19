@@ -17,7 +17,7 @@ from notebooks.batch_scaling import batch_experiment
 from segregation.jobs import settings
 from experiment import configurations, cpu_capacity, experiment, inputs
 from figures import heatmaps, predict_slice, scaling_figure
-from panels import cards, comparison, panel, ram, telemetry
+from panels import STYLE, cards, comparison, panel, ram, receipt, study, telemetry
 
 
 class Dashboard:
@@ -28,23 +28,31 @@ class Dashboard:
         self.history = deque(maxlen=75)
         self.last_pid = None
         self.saved_plane = None
-        self.header = w.HTML(panel(
-            '<h2>Chromosome contact lab</h2><div class="adaMuted">Jupyter interface · '
-            f'{escape(socket.gethostname())} · {self.capacity} session CPUs · Python kernel PID {os.getpid()}</div>'))
+        self.header = w.HTML(
+            f'<style>{STYLE}</style><header class="adaHero"><h2>Chromosome contact lab</h2>'
+            f'<div class="adaHost"><b>Jupyter kernel</b>{escape(socket.gethostname())} · '
+            f'{self.capacity} session CPUs · PID {os.getpid()}</div></header>').add_class("adaHeader")
         self.resolution = w.Dropdown(options=[(f"{n:,} loci · {m['spacing']} kb",n) for n,m in self.maps.items()],
                                      value=404, description="Resolution")
         self.bait = w.IntSlider(description="Bait bin", min=1, max=404, value=200,
                                 continuous_update=False, layout=w.Layout(width="min(560px, 95%)"))
         self.map_image = w.Image(format="png", layout=w.Layout(width="100%", max_width="1050px"))
         self.science = w.HTML()
+        self.plane_source = w.HTML()
         self.resolution.observe(self.change_map, names="value")
         self.bait.observe(self.draw_map, names="value")
         self.change_map()
         advance = w.Button(description="Measure CPU scaling", icon="tachometer", button_style="primary",
                            layout=w.Layout(width="180px"))
         advance.on_click(lambda _: setattr(self.tabs, "selected_index", 1))
-        map_page = w.VBox([self.science, w.HBox([self.resolution, self.bait], layout=w.Layout(flex_flow="row wrap")),
-                           self.map_image, advance])
+        self.recalculate = w.Button(description="Recalculate plane", icon="refresh")
+        self.recalculate.on_click(self.recalculate_plane)
+        map_page = w.VBox([w.HTML(study("contacts", "Where do three chromosome regions meet?",
+            "The authors’ condensin example predicts the bait-200 plane from pair contacts at 10 kb. "
+            "Change the bait to explore another chromosome position.")),
+            w.HBox([self.resolution, self.bait], layout=w.Layout(flex_flow="row wrap")).add_class("adaControls"),
+            self.plane_source, self.map_image, self.science,
+            w.HBox([self.recalculate, advance], layout=w.Layout(flex_flow="row wrap")).add_class("adaControls")])
         self.level = w.Dropdown(description="Workload", options=[("Resolution ladder · 101 → 202 → 404", (101,202,404))]
                                 + [(f"{n:,} loci · {m['spacing']} kb", (n,)) for n,m in self.maps.items()],
                                 layout=w.Layout(width="340px"))
@@ -68,9 +76,14 @@ class Dashboard:
         self.location.observe(self.choose_location, names="value")
         self.choose_location()
         self.live = w.HTML(panel('<h3>Worker monitor</h3><p>Start the experiment to sample the Julia process and its threads.</p>'))
+        self.live_measurements = w.HTML()
         self.status = w.Label()
         controls = w.Box([self.location, self.level, self.ceiling, self.run_mode, self.duration], layout=w.Layout(display="flex",flex_flow="row wrap"))
-        compute_page = w.VBox([controls, self.plan, w.HBox([self.start,self.stop]), self.status,self.live])
+        compute_page = w.VBox([w.HTML(study("contacts", "Measure triplet prediction",
+            "Julia fills the complete probability tensor from the selected pair map. Thread scaling and fine-resolution "
+            "workloads are ADA benchmarks of the published predictor.")),
+            controls.add_class("adaControls"), self.plan, w.HBox([self.start,self.stop]).add_class("adaControls"),
+            self.status,self.live,self.live_measurements])
         self.saved = w.Dropdown(description="Session", options=[], layout=w.Layout(width="min(600px, 95%)"))
         self.saved.observe(self.load_session, names="value")
         self.table = w.HTML(comparison({}))
@@ -83,14 +96,21 @@ class Dashboard:
         self.inspect = w.Button(description="Explore saved bait plane", icon="search", disabled=True,
                                 layout=w.Layout(width="215px"))
         self.inspect.on_click(self.inspect_result)
-        results_page = w.VBox([self.saved,self.scaling,self.table,self.inspect,self.replay,self.replay_view])
+        self.record_source = w.HTML()
+        self.rerun = w.Button(description="Rerun this benchmark", icon="refresh", disabled=True,
+                              layout=w.Layout(width="195px"))
+        self.rerun.on_click(self.rerun_session)
+        self.recorded_config = None
+        results_page = w.VBox([w.HTML(study("contacts", "Recorded CPU measurements",
+            "Select a Julia session to inspect the timings, worker samples and saved bait plane.")),
+            self.saved,self.record_source,self.rerun,self.scaling,self.table,self.inspect,self.replay,self.replay_view])
         self.segregation = None
         self.segregation_page = w.VBox()
         self.tabs = w.Tab(children=[map_page,compute_page,results_page,self.segregation_page],
                           titles=["Bait-200 map","Live experiment","Results & replay","Sister segregation"],
                           selected_index=1 if self.location.value == "slurm" else 0)
         self.tabs.observe(self.open_segregation, names="selected_index")
-        self.view = w.VBox([self.header,self.tabs],layout=w.Layout(width="100%"))
+        self.view = w.VBox([self.header,self.tabs],layout=w.Layout(width="100%")).add_class("adaLab")
         self.refresh_sessions()
 
     def open_segregation(self, *_):
@@ -126,16 +146,25 @@ class Dashboard:
         spacing = self.maps[n]["spacing"]
         if self.saved_plane is not None and self.saved_plane[0] == bait:
             plane = self.saved_plane[1]
-            origin = "Saved Julia prediction"
+            origin = receipt("Saved Julia plane", self.saved_plane[2], saved=True)
         else:
             plane = predict_slice(self.contacts, bait)
-            origin = "Loop-extruder prediction"
-        self.science.value = panel('<h3>Where do three chromosome regions meet?</h3>'
-            '<div class="adaMuted">Move the bait along the chromosome. Each pixel on the right predicts a contact between the bait and two other loci.</div>'
-            +cards([("Bait position", f"{(bait-1)*spacing/1000:.2f} Mb"),("Entries in this plane",f"{n*n:,}"),
-                    ("Entries in full cube",f"{n**3:,}")])+f'<span class="adaGlow">{origin}</span> · radius 5')
+            origin = receipt("Calculated in Jupyter", f"NumPy · {socket.gethostname()} · one {n:,} × {n:,} plane from the loaded pair map")
+        self.plane_source.value = origin
+        if n > 404:
+            input_label = "Pair map reconstructed from archived snapshots"
+        elif n == 404:
+            input_label = "Published pair-contact map"
+        else:
+            input_label = "Subsample of the published pair-contact map"
+        self.science.value = panel(f'<div class="adaMuted">Input · {input_label} · {spacing} kb · contact radius 5</div>'
+            +cards([("Bait position", f"{(bait-1)*spacing/1000:.2f} Mb"),("Predictions displayed",f"{n*n:,}")]))
         fig = heatmaps(self.contacts, plane, bait, spacing)
         self.show_figure(self.map_image, fig)
+
+    def recalculate_plane(self, *_):
+        self.saved_plane = None
+        self.draw_map()
 
     @staticmethod
     def show_figure(widget, fig):
@@ -152,6 +181,9 @@ class Dashboard:
         self.scaling.layout.display = "none" if fig is None else ""
         if fig is not None:
             self.show_figure(self.scaling, fig)
+
+    def show_live_measurements(self, run):
+        self.live_measurements.value = comparison(run)
 
     def choose_location(self, *_):
         remote = self.location.value == "slurm"
@@ -181,11 +213,15 @@ class Dashboard:
         count = len(levels)*len(threads)
         stages = " → ".join(f"{n:,}" for n in levels)
         target = "Slurm CPU job" if self.location.value == "slurm" else "Notebook session"
+        opt = settings() if self.location.value == "slurm" else {}
+        route = (f'{escape(opt.get("partition") or "default partition")} via {escape(opt.get("submit_host") or "local Slurm client")}'
+                 if self.location.value == "slurm" else escape(socket.gethostname()))
         self.plan.value = panel(f'<h3>{target} · {stages} loci</h3><div class="adaMuted">Measure the complete triplet cube at '
             + " → ".join(map(str,threads))+' thread(s). Each configuration repeats the prediction for the selected measurement window.</div>'
             +cards([("Largest output",ram(8*max(levels)**3)),("Configurations",str(count)),
                     ("Minimum timed compute",f"{count*self.duration.value} s")])
-            +'<div class="adaLabel">Startup, warm-up and numerical checks add time.</div>')
+            +f'<div class="adaLabel">{route} · fresh Julia workers each run · prepared pair map reused. '
+             'Pass times exclude startup, warm-up and numerical checks.</div>')
 
     def launch(self, *_):
         if self.task is None or self.task.done():
@@ -210,9 +246,10 @@ class Dashboard:
         for widget in controls:
             widget.disabled = True
         self.stop.disabled = False
+        self.rerun.disabled = True
         self.live.value = panel('<h3>Starting experiment</h3>')
         try:
-            args = (self.level.value,self.ceiling.value,self.duration.value,self.update,self.show_results)
+            args = (self.level.value,self.ceiling.value,self.duration.value,self.update,self.show_live_measurements)
             if self.location.value == "slurm":
                 self.status.value = "Submitting CPU scaling job"
                 dest = await batch_experiment(*args, status=lambda s: setattr(self.status, "value", s),
@@ -232,7 +269,9 @@ class Dashboard:
             self.live.value = panel(f'<h3>Worker error</h3><pre>{escape(str(exc))}</pre>')
             self.refresh_sessions()
         finally:
+            self.live_measurements.value = ""
             self.stop.disabled = True
+            self.rerun.disabled = self.recorded_config is None
             for widget in controls:
                 widget.disabled = False
 
@@ -246,11 +285,59 @@ class Dashboard:
             self.saved.value = selected or self.saved.options[0][1]
             self.load_session()
 
+    def replay_config(self, run, remote, allocated=None):
+        plan = run.get("plan")
+        if plan and plan["threads"]:
+            levels, ceiling, threads = tuple(plan["levels"]), plan["ceiling"], tuple(plan["threads"])
+        elif run["status"] == "complete" and run["rows"]:
+            levels = tuple(dict.fromkeys(row["n"] for row in run["rows"]))
+            groups = {tuple(r["threads"] for r in run["rows"] if r["n"] == n) for n in levels}
+            if len(groups) != 1:
+                return None, "Select the per-resolution thread schedules separately in Live experiment."
+            threads, = groups
+            ceiling = allocated or max(threads)
+        else:
+            return None, "This session has no complete run plan."
+        for n in levels:
+            if n not in self.maps or run["maps"].get(str(n), {}).get("sha256") != self.maps[n]["sha"]:
+                return None, f"Restore the matching {n:,}-locus input to rerun this measurement."
+        limit = int(settings().get("benchmark_cpus", 60)) if remote else self.capacity
+        if ceiling > limit:
+            return None, f"The recorded run needs {ceiling} CPUs on its original execution route."
+        return (remote, levels, ceiling, threads, run["window_s"]), ""
+
+    def rerun_session(self, *_):
+        if not self.recorded_config or (self.task and not self.task.done()):
+            return
+        remote, levels, ceiling, threads, seconds = self.recorded_config
+        self.location.value = "slurm" if remote else "local"
+        # Old sessions may have a valid ceiling or timing window outside today's presets.
+        for control, value, label in ((self.level, levels, "Recorded loci · " + ", ".join(map(str, levels))),
+                                      (self.ceiling, ceiling, str(ceiling)),
+                                      (self.run_mode, threads, "Recorded threads · " + " → ".join(map(str, threads))),
+                                      (self.duration, seconds, f"{seconds:g} seconds")):
+            options = [(str(v), v) if not isinstance(v, tuple) else v for v in control.options]
+            if value not in [v for _, v in options]:
+                control.options = [*options, (label, value)]
+            control.value = value
+        self.tabs.selected_index = 1
+        self.launch()
+
     def load_session(self, *_):
         path = self.saved.value
         if not path:
             return
         run = json.loads((path/"session.json").read_text())
+        batch = path / "batch.json"
+        meta = json.loads(batch.read_text()) if batch.is_file() else {}
+        job = run.get("job") or meta.get("job")
+        remote = run.get("execution") == "slurm" or bool(meta)
+        where = ("Slurm CPU" if remote else "Jupyter session") + (f" · job {job}" if job else "")
+        self.recorded_config, reason = self.replay_config(run, remote, meta.get("cpus"))
+        self.recorded_worker = f'{where} · {run["node"]} · {path.name}'
+        self.rerun.disabled = self.recorded_config is None or bool(self.task and not self.task.done())
+        self.record_source.value = receipt("Recorded session", f'{where} · {run["node"]} · {run["started"]}. '
+            + (reason or "Rerun repeats these settings using the current session or Slurm configuration."), saved=True)
         self.show_results(run)
         data = path/"telemetry.jsonl"
         self.samples = []
@@ -290,7 +377,7 @@ class Dashboard:
         bait = run["maps"][str(n)]["bait"]
         saved = np.fromfile(path/f"bait-{n}.f64", dtype=np.float64).reshape((n,n),order="F")
         np.testing.assert_array_equal(saved, predict_slice(self.contacts,bait))
-        self.saved_plane = (bait,saved)
+        self.saved_plane = (bait, saved, f'{self.recorded_worker} · loaded from bait-{n}.f64 and checked in Jupyter')
         self.bait.value = bait
         self.draw_map()
         self.tabs.selected_index = 0

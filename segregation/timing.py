@@ -9,3 +9,4 @@ import traitlets
 class PlotTiming(anywidget.AnyWidget):
     _esm = Path(__file__).with_name("timing.js")
     revision = traitlets.Unicode().tag(sync=True)
+    widths = traitlets.List(traitlets.Int()).tag(sync=True)

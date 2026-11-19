@@ -15,7 +15,7 @@ from demo_storage import full_ensemble, slurm_config
 from .engine import PREVIEW, Coordinates, N, WINDOW
 from .index import build_index, index_path
 from .jobs import request, settings as slurm_settings
-from notebooks.panels import cards, panel, ram
+from notebooks.panels import cards, panel, ram, receipt, study
 from .timing import PlotTiming
 
 COLORS = ("#63d9cb", "#ffab75")
@@ -52,6 +52,9 @@ class SegregationView:
         self.compare_button = w.Button(
             description="Compare stage", icon="play", button_style="primary"
         )
+        self.fresh_button = w.Button(description="Recalculate this stage", icon="refresh",
+                                     layout=w.Layout(width="195px"))
+        self.fresh_button.on_click(lambda _: self.launch(force=True))
         self.configuring = False
         self.stop = w.Button(description="Stop", icon="stop", disabled=True)
         self.stage = w.SelectionSlider(
@@ -68,12 +71,16 @@ class SegregationView:
             continuous_update=False,
             description="Radius",
         )
-        for control in (self.stage, self.radius, self.compare_button):
+        for control in (self.stage, self.radius, self.compare_button, self.fresh_button):
             control.add_class("ada-query-trigger")
         self.timing = PlotTiming()
         self.plan = w.HTML()
+        self.cache_note = w.HTML()
+        self.reuse.observe(self.describe_reuse, names="value")
+        self.describe_reuse()
         self.progress = w.HTML()
         self.metrics = w.HTML()
+        self.origin = w.HTML()
         self.source = w.HTML()
         self.pick = w.Dropdown(
             options=[],
@@ -182,7 +189,7 @@ class SegregationView:
         self.map_scale.observe(self.scale_map, names="value")
         self.map_key = w.HTML()
         boxes = [
-            w.VBox([fig], layout=w.Layout(flex="1 1 390px", min_width="0"))
+            w.VBox([fig], layout=w.Layout(flex="1 1 390px", min_width="0")).add_class("adaPlotSlot")
             for fig in (self.scatter, self.scene)
         ]
         self.pair = w.Box(
@@ -190,6 +197,7 @@ class SegregationView:
         )
         for chart in (self.scatter, self.scene, self.history, self.map):
             chart.layout.autosize = True
+        self.timing.observe(self.size_charts, names="widths")
 
         def row(children):
             return w.Box(
@@ -202,7 +210,7 @@ class SegregationView:
                 w.VBox(
                     [
                         row([self.dataset, self.backend, self.reuse]),
-                        self.plan,
+                        self.plan, self.cache_note,
                     ]
                 )
             ],
@@ -210,18 +218,19 @@ class SegregationView:
             selected_index=0,
         )
         detail_plots = w.Box([
-            w.VBox([self.history], layout=w.Layout(flex="1 1 390px", min_width="0")),
-            w.VBox([self.map, self.map_scale, self.map_key], layout=w.Layout(flex="1 1 390px", min_width="0")),
+            w.VBox([self.history], layout=w.Layout(flex="1 1 390px", min_width="0")).add_class("adaPlotSlot"),
+            w.VBox([self.map, self.map_scale, self.map_key], layout=w.Layout(flex="1 1 390px", min_width="0")).add_class("adaPlotSlot"),
         ], layout=w.Layout(display="flex", flex_flow="row wrap", width="100%"))
         self.results_view = w.VBox([
-            self.metrics, self.pair, row([self.pick, self.frame, self.pin]),
+            self.origin, self.fresh_button, self.metrics, self.pair, row([self.pick, self.frame, self.pin]),
             self.source, detail_plots,
         ], layout=w.Layout(display="none"))
         self.view = w.VBox(
             [
-                w.HTML(panel("<h2>Sister chromosome segregation</h2>"
-                             '<div class="adaMuted">Compare cells with and without non-topological SMC at the same replication stage. '
-                             "Select a trajectory to inspect its chromosomes in 3-D.</div>")),
+                w.HTML(study("segregation", "How far have the sister chromosomes separated?",
+                             "The authors simulated replication with and without non-topological SMC. "
+                             "We reuse their archived coordinates and indexed per-frame segregation scores. "
+                             "Our stage analysis measures inter-sister contacts. Click a point to inspect its archived 3-D frame.")),
                 *([] if ready else [availability]),
                 settings,
                 row([self.stage, self.radius, self.compare_button, self.stop]),
@@ -244,6 +253,13 @@ class SegregationView:
         if self.backend.value == "local" and not slurm_config().is_file():
             self.launch()
 
+    def size_charts(self, change):
+        charts = (self.scatter, self.scene, self.history, self.map)
+        if len(change.new) == len(charts):
+            for chart, width in zip(charts, change.new):
+                if width >= 10 and chart.layout.width != width:
+                    chart.layout.width = width
+
     def configure_dataset(self, *_):
         self.configuring = True
         try:
@@ -265,6 +281,13 @@ class SegregationView:
             self.change_backend()
         finally:
             self.configuring = False
+
+    def describe_reuse(self, *_):
+        if self.reuse.value:
+            text = "A match loads the saved contact map, trajectory summaries and worker timings. A miss runs the comparison."
+        else:
+            text = "Each comparison calculates and saves a contact map, trajectory summaries and worker timings."
+        self.cache_note.value = f'<div class="adaPolicy">{text}</div>'
 
     def change_backend(self, *_):
         self.clear()
@@ -301,35 +324,35 @@ class SegregationView:
             for trace in self.history.data:
                 trace.x = trace.y = []
             self.history.layout.shapes = []
-        self.source.value = self.metrics.value = ""
+        self.origin.value = self.source.value = self.metrics.value = ""
 
     def query_change(self, *_):
         if not self.configuring:
             self.launch()
 
-    def launch(self, *_):
+    def launch(self, *_, force=False):
         if self.task is not None and not self.task.done():
             return
         self.stop_event = threading.Event()
         for control in self.query_controls:
             control.disabled = True
         self.stop.disabled = False
-        self.task = asyncio.create_task(self.run())
+        self.results_view.layout.display = "none"
+        self.task = asyncio.create_task(self.run(fresh=force or not self.reuse.value))
 
     @property
     def query_controls(self):
-        return (self.dataset, self.backend, self.compare_button, self.stage, self.radius, self.reuse)
+        return (self.dataset, self.backend, self.compare_button, self.stage, self.radius, self.reuse, self.fresh_button)
 
     def cancel(self):
         self.stop_event.set()
 
-    async def run(self):
+    async def run(self, *, fresh):
         started = time.perf_counter()
         latest = "Opening stage index"
         folder = Path(self.dataset.value)
         index = index_path(folder)
         backend, stage, radius = self.backend.value, self.stage.value, self.radius.value
-        fresh = not self.reuse.value
 
         def status(message):
             nonlocal latest
@@ -351,13 +374,21 @@ class SegregationView:
                 self.progress.value = f"{escape(latest)} · {time.perf_counter() - started:.1f} s"
                 await asyncio.wait({work}, timeout=0.2)
             self.engine, result, source = await work
-            self.results_view.layout.display = ""
             revision = str(time.monotonic_ns())
+            saved = source == "Saved result"
+            mode = "Saved comparison" if saved else "Fresh calculation"
+            if source.startswith("Reconnected"):
+                mode = "Existing batch calculation"
+            worker = {"local": "Jupyter CPU", "CPU": "Slurm CPU", "CUDA": "Slurm GPU"}[backend]
+            if backend == "CUDA":
+                worker += f' · {result["device"]}'
+            job = f' · job {result["job"]}' if result.get("job") else ""
+            stamp = f' · {result["measured_at"]}' if result.get("measured_at") else ""
+            detail = "Loaded saved outputs and original worker measurements." if saved else "Computed stage contacts from the prepared index."
+            self.origin.value = receipt(mode, f'{detail} {worker} on {result["node"]}{job}{stamp}', saved=saved)
+            self.results_view.layout.display = ""
             self.present(result, revision)
-            self.progress.value = (
-                f"<b>{escape(source)}</b> · {time.perf_counter() - started:.2f} s from request "
-                "to plot update in kernel"
-            )
+            self.progress.value = f"Request to plot update in kernel · {time.perf_counter() - started:.2f} s"
             self.timing.revision = revision
         except InterruptedError:
             self.clear()
@@ -401,11 +432,11 @@ class SegregationView:
         self.metrics.value = panel(
             f"<h3>{device}</h3>" + cards([
                 ("Trajectories", f"{len(self.points):,}"), ("Eligible pairs", f"{result['pairs']:,}"),
-                ("Analysis time", f"{result['seconds'] * 1000:,.0f} ms"),
-                ("Throughput", f"{result['pairs'] / result['seconds'] / 1e6:,.1f} M pairs/s"),
+                ("Worker analysis time", f"{result['seconds'] * 1000:,.0f} ms"),
+                ("Worker throughput", f"{result['pairs'] / result['seconds'] / 1e6:,.1f} M pairs/s"),
             ]) + f'<div class="adaMuted">{result["frames"]:,} frames · stage {result["stage"]:.0%} ± 4 percentage points · '
             f'radius {result["radius"]:.2f} monomers · {result["busy"]:.1f} busy CPU equivalents '
-            f'of {result["cpus"]} configured · {ram(result["peak_rss"])} peak worker RSS{gpu}</div>')
+            f'of {result["cpus"]} configured · {ram(result["peak_rss"])} peak process RSS{gpu}</div>')
         self.pick.options = [(self.name(i), i) for i in range(len(self.points))]
         self.pick.value = next(
             (i for i, p in enumerate(self.points) if p["track"] == previous), 0

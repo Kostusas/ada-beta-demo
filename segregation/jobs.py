@@ -106,7 +106,7 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
                 stop.wait(0.25)
         previous = file_stamp(output)
         running = json.loads(active.read_text()) if active.is_file() else None
-        if previous is not None:
+        if previous is not None and (running or not fresh or previous != at_request):
             saved = load_result(output)
             if running and saved["job"] == running[1]:
                 active.unlink()
@@ -118,6 +118,7 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
                     lambda label, done, total: status(f"{label} · {done:,}/{total:,}"))
             return load_result(output), "Computed in the preview session"
         submit_host = options.get("submit_host", "")
+        resumed = bool(running)
         if running:
             attempt_name, job, *route = running
             # A job started directly on ADA can be resumed from its Jupyter container.
@@ -138,7 +139,8 @@ def request(folder, index, index_id, stage, radius, backend, stop, status, *, ca
             completed = file_stamp(output)
             if completed is not None and completed != previous:
                 active.unlink(missing_ok=True)
-                return load_result(output), f"Slurm job {job}"
+                source = f"Reconnected to Slurm job {job}" if resumed else f"Slurm job {job}"
+                return load_result(output), source
             if stop.is_set():
                 cancel = scheduler(["scancel", job], submit_host=submit_host)
                 if cancel.returncode and file_stamp(output) == previous:

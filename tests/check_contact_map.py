@@ -40,6 +40,13 @@ async def check():
                 trace.z = data
                 widget.scale_map()
                 assert not trace.showscale
+            widget.reuse.value = True
+            widget.compare_button.click()
+            await widget.task
+            assert "Saved comparison" in widget.origin.value and "Jupyter CPU" in widget.origin.value
+            widget.fresh_button.click()
+            await widget.task
+            assert "Fresh calculation" in widget.origin.value and widget.reuse.value
         # A prepared installation selects the late-stage GPU run without submitting on open.
         full = root / "staged"
         full.mkdir()
@@ -57,6 +64,9 @@ async def check():
                 await widget.task
                 assert submit.call_args.args[3] == 90
                 assert submit.call_args.kwargs["fresh"] == (not reuse)
+            widget.fresh_button.click()
+            await widget.task
+            assert submit.call_args.kwargs["fresh"] and widget.reuse.value
 
 
 if __name__ == "__main__":

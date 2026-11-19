@@ -130,7 +130,7 @@ async def worker(command, n, threads, update, stream, origin, index, count):
         await asyncio.gather(reader, return_exceptions=True)
 
 
-async def experiment(levels, ceiling, seconds, update, completed, output=None, *, directory=None, thread_counts=None):
+async def experiment(levels, ceiling, seconds, update, completed, output=None, *, directory=None, thread_counts=None, batch=False):
     configured = os.getenv("JULIA")
     staged = ROOT / "runtime/julia-1.12.6/bin/julia"
     legacy = ROOT / "results" / staged.relative_to(ROOT)
@@ -156,7 +156,9 @@ async def experiment(levels, ceiling, seconds, update, completed, output=None, *
         directory = Path(tempfile.mkdtemp(dir=parent, prefix="session-"))
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     run = dict(started=started, node=socket.gethostname(), cpus=cpu_capacity(),
-               kernel_pid=os.getpid(), window_s=seconds, rows=[], status="running", maps={})
+               kernel_pid=os.getpid(), window_s=seconds, rows=[], status="running", maps={},
+               execution="slurm" if batch else "session", job=os.environ.get("SLURM_JOB_ID") if batch else None,
+               plan=dict(levels=list(levels), ceiling=ceiling, threads=thread_counts))
     def save():
         temp = directory / "session.tmp"
         temp.write_text(json.dumps(run, indent=2) + "\n")

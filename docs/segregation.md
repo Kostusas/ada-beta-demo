@@ -100,6 +100,8 @@ After **Ready** shows **603 trajectories, 89,847 archived frames**, restart the 
 
 This clears completed segregation answers under `results/segregation-queries/`. It preserves run logs, CPU benchmark replays and active requests. Turning off **Reuse saved comparisons** gives a fresh measurement even when a previous answer exists. Deleting `results/` while jobs are idle also removes their logs and all CPU replay sessions. Run `prepare-ada` once before doing this on an older clone to preserve earlier inputs and settings.
 
+For a live presentation, click **Recalculate this stage** below a completed comparison. It bypasses the saved answer for this request and keeps your reuse preference. **Saved comparison** labels the original worker metrics when a result is loaded from disk. The request and browser timings measure the current interaction. New results record when the stage calculation finished, in UTC. A reconnect identifies the existing job.
+
 | Shared clone path | Contents |
 | --- | --- |
 | `inputs/` | Source archive, packed trajectories, stage index and prepared bait maps |

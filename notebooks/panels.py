@@ -1,28 +1,35 @@
 """Small HTML/SVG views rendered by the Jupyter widget frontend."""
 from html import escape
 
-STYLE = """
-<style>
-.adaPanel{background:#101f2d;color:#edf6f5;padding:20px 24px;border-radius:10px;font:14px/1.5 system-ui,sans-serif}
-.adaPanel h2,.adaPanel h3{color:#f4f7fa;font-family:system-ui,sans-serif;margin:0 0 5px;font-weight:650}
-.adaPanel h2{font-size:29px;letter-spacing:-.035em}.adaPanel h3{font-size:17px}
-.adaMuted,.adaLabel{color:#afc3d0}.adaLabel{font-size:12px}.adaGlow{color:#5ce1c0}
-.adaStats{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
-.adaCard{flex:1;min-width:115px;background:#1a3041;border-radius:7px;padding:10px 14px}
-.adaValue{color:#f7fafb;font-size:23px;font-variant-numeric:tabular-nums;font-weight:650}
-.adaColumns{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
-.adaThread{display:flex;align-items:center;gap:9px;font:12px/1.7 ui-monospace,monospace}
-.adaTrack{display:block;flex:1;background:#294151;height:7px;border-radius:4px}
-.adaTrack i{display:block;background:#5ce1c0;height:100%;border-radius:4px}
-.adaPanel table{border-collapse:collapse;width:100%;color:inherit;font-size:13px}
-.adaPanel td,.adaPanel th{padding:6px;text-align:right;border-bottom:1px solid #334957;background:#101f2d;color:inherit}
-.adaPanel td:first-child,.adaPanel th:first-child{text-align:left}
-</style>
-"""
+from pathlib import Path
+
+STYLE = Path(__file__).with_name("dashboard.css").read_text()
+
+PAPERS = {
+    "contacts": ("Harju, Messelink & Broedersz", "Physical Review E", "2025",
+                 "Multicontact statistics distinguish models of chromosome organization",
+                 "https://doi.org/10.1103/PhysRevE.111.014403"),
+    "segregation": ("Harju, van Teeseling & Broedersz", "Nature Communications", "2024",
+                    "Loop-extruders alter bacterial chromosome topology to direct entropic forces for segregation",
+                    "https://doi.org/10.1038/s41467-024-49039-w"),
+}
 
 
 def panel(body):
-    return f'{STYLE}<div class="adaPanel">{body}</div>'
+    return f'<div class="adaPanel">{body}</div>'
+
+
+def study(key, title, scope):
+    authors, journal, year, article, doi = PAPERS[key]
+    return (f'<section class="adaStudy"><h3>{title}</h3><p>{scope}</p>'
+            f'<div class="adaCite"><span>{escape(authors)} · {journal} · {year}</span>'
+            f'<a href="{doi}" target="_blank" rel="noopener noreferrer">{article} ↗</a></div></section>')
+
+
+def receipt(title, details, *, saved=False):
+    kind = "adaRecorded" if saved else "adaMeasured"
+    return (f'<div class="adaReceipt {kind}"><strong>{escape(title)}</strong>'
+            f'<span>{escape(details)}</span></div>')
 
 
 def cards(items):
@@ -81,7 +88,7 @@ def comparison(run):
         body += f'<h3 style="margin-top:15px">{n:,} loci · {n**3:,} entries</h3>'
         reference = next((r.get("reference_threads", 1) for r in group if "speedup" in r), None)
         scaling_headers = f"<th>Speedup vs {reference}T</th><th>Relative efficiency</th>" if reference else ""
-        body += f'<table><tr><th>Threads</th><th>G entries/s</th><th>Median/pass</th>{scaling_headers}<th>Busy CPUs</th><th>Peak RSS</th></tr>'
+        body += f'<div class="adaTable"><table><tr><th>Threads</th><th>G entries/s</th><th>Median/pass</th>{scaling_headers}<th>Busy CPUs</th><th>Peak RSS</th></tr>'
         for r in group:
             rate = n**3/r["median_s"]
             speed = f'{r["speedup"]:.2f}×' if "speedup" in r else "—"
@@ -90,5 +97,5 @@ def comparison(run):
                      f'<td>{r["median_s"]*1000:.2f} ms</td>'
                      + (f'<td>{speed}</td><td>{efficiency}</td>' if reference else '') +
                      f'<td>{r["busy_cores"]:.2f}</td><td>{ram(r["peak_rss"])}</td></tr>')
-        body += '</table>'
+        body += '</table></div>'
     return panel(body)

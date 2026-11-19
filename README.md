@@ -19,6 +19,17 @@ To clear saved stage answers, run `.venv/bin/python -m demo_storage clear-cache`
 
 ![Condensin pair-contact frequencies and predicted three-point contacts at bait 200](examples/contacts.png)
 
+## Present the notebook
+
+Each tab links its paper and identifies the input, computing location and source of the displayed result. The original presentation is tagged [v0.1.0](https://github.com/Kostusas/ada-beta-demo/tree/v0.1.0).
+
+| View | What you are showing | How to run it fresh |
+| --- | --- | --- |
+| Bait-200 map | A published or prepared pair map and a single predicted plane. Opening a Julia session’s saved plane labels its origin. | **Recalculate plane** evaluates that bait again in Jupyter. |
+| Live experiment | A new Julia CPU benchmark using the selected pair map in Jupyter or a Slurm allocation. | **Run experiment** starts new workers. |
+| Results & replay | Timings, CPU samples and a bait plane from the selected session. | **Rerun this benchmark** repeats its settings on its execution route, using the current site configuration. It writes a separate session. |
+| Sister segregation | Stage analysis of archived simulations. The result identifies a fresh calculation, a saved comparison or a reconnected job. | **Recalculate this stage** bypasses a completed answer even with **Reuse saved comparisons** checked. It uses the prepared coordinates and segregation scores. |
+
 ## Compare sister chromosomes
 
 Select **Sister segregation** to compare matched trajectories from Harju, van Teeseling and Broedersz’s 2024 study. Pick a replication stage, vary the contact radius, and click an outlier to rotate its sister chromosomes in 3-D. Pin it and click another point to compare their segregation histories. The repository includes eight archived trajectories sampled at three stages. On ADA each new stage and contact radius can submit a single H200 job. The job reads that window of the 603-trajectory ensemble, saves the result and exits. Each comparison runs live by default. Enable **Reuse saved comparisons** for immediate replay. The guide includes an eight-trajectory GPU smoke test you can run before staging the full archive. [H200 setup and presentation guide](docs/segregation.md) · [Paper](https://doi.org/10.1038/s41467-024-49039-w)
